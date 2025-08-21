@@ -59,7 +59,7 @@ export const StoreSpy: React.FC = () => {
         setStoreData(null);
 
         try {
-            const response = await fetch('http://localhost:3000/api/analyze-store', {
+            const response = await fetch('http://tpt-niche-navigator-main.onrender.com/api/analyze-store', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

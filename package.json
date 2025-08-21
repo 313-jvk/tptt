@@ -12,8 +12,10 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
     "@radix-ui/react-accordion": "^1.2.0",
@@ -96,7 +98,7 @@
     "typescript-eslint": "^8.0.1",
     "vite": "^5.4.1"
   },
-  "description": "**URL**: https://lovable.dev/projects/8b93d82f-1059-4d45-8c8f-32e5fea47e02",
+  "description": "**URL**: ",
   "main": "eslint.config.js",
   "keywords": [],
   "author": "",
