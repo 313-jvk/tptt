@@ -4,15 +4,12 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
-  // Ajoutez cette ligne pour le déploiement sur GitHub Pages !
-  base: '/tpt-niche-navigator-main/',
-
   server: {
     host: "::",
     port: 8080,
     proxy: {
       '/api': {
-        target: 'http://tpt-niche-navigator-main.onrender.com', 
+        target: 'http://localhost:3000', 
         changeOrigin: true,
       }
     }

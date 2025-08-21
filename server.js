@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer-core'; // Ligne modifiée
+import puppeteer from 'puppeteer';
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -14,7 +14,6 @@ const scrapeProductData = async (url) => {
     try {
         browser = await puppeteer.launch({
             headless: true,
-            executablePath: '/usr/bin/google-chrome', // Ligne ajoutée
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
@@ -88,7 +87,7 @@ const scrapeProductData = async (url) => {
                 standardElements.forEach(el => {
                     const text = el.textContent.trim();
                     if (text && text.length > 1) { 
-                            ccssStandards.push(text.replace(/,$/, ''));
+                           ccssStandards.push(text.replace(/,$/, ''));
                     }
                 });
             }
@@ -139,13 +138,12 @@ const scrapeStoreData = async (url) => {
     try {
         browser = await puppeteer.launch({
             headless: true,
-            executablePath: '/usr/bin/google-chrome', // Ligne ajoutée
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        
+       
         const storeData = await page.evaluate(() => {
             const data = {};
             const storeNameEl = document.querySelector('h1[class*="StorePageHeader-module__storeName--"]') || null;
@@ -218,7 +216,7 @@ const scrapeStoreData = async (url) => {
 
         const totalProducts = storeData.totalProducts > 0 ? storeData.totalProducts : allProducts.length;
 
-        
+       
         const topProducts = [...allProducts].sort((a, b) => b.ratingsCount - a.ratingsCount).slice(0, 10);
 
         
@@ -274,7 +272,6 @@ const scrapeKeywordData = async (keyword) => {
     try {
         browser = await puppeteer.launch({
             headless: true,
-            executablePath: '/usr/bin/google-chrome', // Ligne ajoutée
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
@@ -294,7 +291,7 @@ const scrapeKeywordData = async (keyword) => {
         const data = await page.evaluate(() => {
             const result = {};
 
-            
+           
             const totalProductsEl = document.querySelector('.SearchResultsHeader__headingWithCount div');
             if (totalProductsEl) {
                 const match = totalProductsEl.textContent.match(/\d[\d,.]*/);
@@ -331,7 +328,7 @@ const scrapeKeywordData = async (keyword) => {
                         }
                     });
                 }
-                
+               
                 tags.forEach(tag => {
                     const cleanTag = tag.toLowerCase().replace(/[^a-z0-9\s]/gi, '');
                     if (cleanTag.length > 2) {

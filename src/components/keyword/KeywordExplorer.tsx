@@ -46,7 +46,7 @@ export const KeywordExplorer: React.FC = () => {
     setKeywordData(null); // Réinitialiser les données précédentes
 
     try {
-        const response = await fetch('http://tpt-niche-navigator-main.onrender.com/api/analyze-keyword', {
+        const response = await fetch('http://localhost:3000/api/analyze-keyword', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
