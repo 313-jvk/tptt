@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install:puppeteer": "npx puppeteer browsers install chrome"
   },
 
   "dependencies": {
