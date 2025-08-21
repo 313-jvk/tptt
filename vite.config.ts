@@ -6,7 +6,7 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
-    port: 10000,
+    port: 8080,
     proxy: {
       '/api': {
         target: 'http://tpt-niche-navigator-main.onrender.com', 
