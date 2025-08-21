@@ -1,6 +1,10 @@
+// Définissez l'URL de base de votre API Render
+
+
 export const analyzeTPTProduct = async (url: string) => {
   try {
-    const response = await fetch('/api/analyze-product', { 
+    // Utilisez l'URL complète pour la requête
+    const response = await fetch('https://tpt-niche-navigator-main.onrender.com/api/analyze-product', { 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url })
