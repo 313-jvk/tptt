@@ -1526,4 +1526,3 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Serveur en écoute sur port ${PORT}`);
 });
-

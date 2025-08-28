@@ -1,4 +1,4 @@
-//pages/Dash
+//pages
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,6 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/auth/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import axios from 'axios';
 
 // Types TypeScript pour les données
 interface KeywordOpportunity {
@@ -80,51 +79,57 @@ interface Filters {
   competition: string;
   // ajoutez d'autres propriétés si nécessaire
 }
-// pages/Dashboard.tsx
-// ...
 const useKeywordOpportunities = (filters: Filters, searchTerm: string) => {
   const [opportunities, setOpportunities] = useState<KeywordOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchOpportunities = useCallback(async () => {
+  const fetchOpportunities = useCallback(async () => { 
     try {
       setLoading(true);
-      // Remplacez cette section
-      // const { data, error } = await query;
-      // Par cet appel à votre API Express
-      const res = await axios.get('/api/dashboard/opportunities', {
-        params: {
-          competition: filters.competition,
-          keyword: searchTerm
-        },
-        // Assurez-vous d'inclure les headers nécessaires pour votre middleware
-        headers: { 'user-id': 'votre_id_utilisateur_ici' } 
-      });
+      let query = supabase
+        .from('best_opportunities')
+        .select('*')
+        .order('opportunity_score', { ascending: false })
+        .limit(10);
 
-      setOpportunities(res.data.opportunities || []);
+      // Appliquer les filtres
+      if (searchTerm) {
+        query = query.ilike('keyword', `%${searchTerm}%`);
+      }
+      
+      if (filters.competition !== 'all') {
+        query = query.eq('competition_level', filters.competition);
+      }
 
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Erreur lors du chargement des opportunités:', error);
+        toast({
+          title: "Erreur",
+          description: "Impossible de charger les opportunités",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      setOpportunities(data || []);
     } catch (error) {
-      console.error('Erreur lors du chargement des opportunités:', error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de charger les opportunités",
-        variant: "destructive"
-      });
+      console.error('Erreur:', error);
     } finally {
       setLoading(false);
     }
-  }, [filters, searchTerm]);
+  }, [filters, searchTerm]); 
+ 
 
   useEffect(() => {
-    fetchOpportunities();
-  }, [fetchOpportunities]);
+  fetchOpportunities();
+}, [fetchOpportunities]);
 
   return { opportunities, loading, refetch: fetchOpportunities };
 };
-// ...
 
 // Hook pour récupérer les produits tendance
-// ...
 const useTrendingProducts = () => {
   const [products, setProducts] = useState<TrendingProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,28 +137,32 @@ const useTrendingProducts = () => {
   useEffect(() => {
     const fetchTrendingProducts = async () => {
       try {
-        const res = await axios.get('/api/dashboard/trending');
-        setProducts(res.data.trending || []);
+        const { data, error } = await supabase
+          .from('top_trending_products')
+          .select('*')
+          .order('growth_rate', { ascending: false })
+          .limit(5);
+
+        if (error) {
+          console.error('Erreur produits tendance:', error);
+          return;
+        }
+
+        setProducts(data || []);
       } catch (error) {
-        console.error('Erreur produits tendance:', error);
-        toast({
-          title: "Erreur",
-          description: "Impossible de charger les produits tendance",
-          variant: "destructive"
-        });
+        console.error('Erreur:', error);
       } finally {
         setLoading(false);
       }
     };
+
     fetchTrendingProducts();
   }, []);
 
   return { products, loading };
 };
-// ...
 
 // Hook pour récupérer les alertes utilisateur
-// ...
 const useUserAlerts = () => {
   const { user } = useAuth();
   const [alerts, setAlerts] = useState<UserAlert[]>([]);
@@ -164,25 +173,44 @@ const useUserAlerts = () => {
 
     const fetchAlerts = async () => {
       try {
-        const res = await axios.get(`/api/dashboard/alerts/${user.id}`);
-        setAlerts(res.data.alerts || []);
+        const { data, error } = await supabase
+          .from('user_alerts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (error) {
+          console.error('Erreur alertes:', error);
+          return;
+        }
+
+        setAlerts(data || []);
       } catch (error) {
-        console.error('Erreur alertes:', error);
+        console.error('Erreur:', error);
       } finally {
         setLoading(false);
       }
     };
+
     fetchAlerts();
   }, [user]);
 
   const markAsRead = async (alertId: number) => {
     try {
-      await axios.patch(`/api/dashboard/alerts/${alertId}/read`);
-      setAlerts(prev => 
-        prev.map(alert => 
-          alert.id === alertId ? { ...alert, is_read: true } : alert
-        )
-      );
+      const { error } = await supabase
+        .from('user_alerts')
+        .update({ is_read: true })
+        .eq('id', alertId);
+
+      if (!error) {
+        setAlerts(prev => 
+          prev.map(alert => 
+            alert.id === alertId ? { ...alert, is_read: true } : alert
+          )
+        );
+      }
     } catch (error) {
       console.error('Erreur mise à jour alerte:', error);
     }
@@ -190,10 +218,8 @@ const useUserAlerts = () => {
 
   return { alerts, loading, markAsRead };
 };
-// ...
 
 // Hook pour les stats utilisateur
-// ...
 const useUserStats = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState({
@@ -209,20 +235,61 @@ const useUserStats = () => {
 
     const fetchStats = async () => {
       try {
-        const res = await axios.get(`/api/dashboard/stats/${user.id}`);
-        setStats(res.data.stats);
+        // Analyses utilisateur ce mois-ci
+        const thisMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        
+        const { data: analyses, error: analysesError } = await supabase
+          .from('user_analyses')
+          .select('*')
+          .eq('user_id', user.id)
+          .gte('created_at', `${thisMonth}-01`);
+
+        // Mots-clés suivis
+        const { data: keywords, error: keywordsError } = await supabase
+          .from('user_tracked_keywords')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('is_active', true);
+
+        if (analysesError || keywordsError) {
+          console.error('Erreur stats:', analysesError || keywordsError);
+          return;
+        }
+
+        // Calculer les stats
+        const productAnalyses = analyses?.filter(a => a.analysis_type === 'product') || [];
+        const keywordAnalyses = analyses?.filter(a => a.analysis_type === 'keyword') || [];
+        const storeAnalyses = analyses?.filter(a => a.analysis_type === 'store') || [];
+
+        // Calculer profit potentiel estimé
+        const potentialProfit = productAnalyses.reduce((total, analysis) => {
+          interface AnalysisData {
+          estimatedRevenue?: number;
+  // ajoutez d'autres propriétés
+}
+const data = analysis.data as AnalysisData;
+          return total + (data?.estimatedRevenue || 0);
+        }, 0);
+
+        setStats({
+          productsAnalyzed: productAnalyses.length,
+          keywordsExplored: keywordAnalyses.length,
+          storesTracked: storeAnalyses.length,
+          potentialProfit: Math.round(potentialProfit)
+        });
+
       } catch (error) {
-        console.error('Erreur stats:', error);
+        console.error('Erreur:', error);
       } finally {
         setLoading(false);
       }
     };
+
     fetchStats();
   }, [user]);
 
   return { stats, loading };
 };
-// ...
 
 // Composant OpportunityCard
 const OpportunityCard = ({ opportunity, onClick }: { opportunity: KeywordOpportunity; onClick: () => void }) => {
