@@ -24,6 +24,14 @@ const PAYPAL_BASE_URL = process.env.NODE_ENV === 'production'
 const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
 
+const corsOptions = {
+  origin: 'https://votre-frontend.vercel.app', // Replace with your Vercel URL
+  optionsSuccessStatus: 200
+};
+
+// Use the cors middleware
+app.use(cors(corsOptions));
+
 // Fonction pour obtenir un token d'accès PayPal
 const getPayPalAccessToken = async () => {
     try {
