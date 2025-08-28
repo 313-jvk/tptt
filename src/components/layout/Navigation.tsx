@@ -36,17 +36,17 @@ const navItems = [
     description: 'Analyser les performances des magasins'
   },
   {
-    title: 'Opportunités',
-    href: '/opportunities',
+    title: 'Abonnement',
+    href: '/Pricing',
     icon: TrendingUp,
-    description: 'Découvrir de nouvelles opportunités'
+    description: 'Accédez à des fonctionnalités avancées pour maximiser votre potentiel sur TPT'
   },
   {
-    title: 'Mes recherches',
-    href: '/saved-searches',
-    icon: Bookmark,
-    description: 'Gérer vos recherches sauvegardées'
-  },
+    title: 'Account',
+    href: '/Account',
+    icon: TrendingUp,
+    description: 'Découvrir de nouvelles opportunités'
+  }
 ];
 
 export const Navigation: React.FC = () => {

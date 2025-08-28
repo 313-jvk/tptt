@@ -13,8 +13,22 @@ import {
   Star, 
   Package,
   Bookmark,
-  AlertCircle
+  AlertCircle,
+  ExternalLink,
+  Store
 } from 'lucide-react';
+
+interface TopProduct {
+  title: string;
+  url: string | null;
+  price: number;
+  ratingsCount: number;
+  averageRating: number;
+  storeName: string;
+  storeUrl: string | null;
+  estimatedSales: number;
+  estimatedRevenue: number;
+}
 
 interface KeywordData {
   keyword: string;
@@ -24,6 +38,7 @@ interface KeywordData {
   competitionLevel: 'Faible' | 'Moyen' | 'Élevé' | 'Très Élevé';
   competitionScore: number;
   relatedKeywords: { word: string; count: number; }[];
+  topProducts: TopProduct[]; // ⭐ NOUVELLE INTERFACE
 }
 
 export const KeywordExplorer: React.FC = () => {
@@ -43,7 +58,7 @@ export const KeywordExplorer: React.FC = () => {
     }
 
     setLoading(true);
-    setKeywordData(null); // Réinitialiser les données précédentes
+    setKeywordData(null);
 
     try {
         const response = await fetch('http://localhost:3000/api/analyze-keyword', {
@@ -58,8 +73,8 @@ export const KeywordExplorer: React.FC = () => {
             throw new Error(`Erreur du serveur: ${response.statusText}`);
         }
 
-        const data: KeywordData = await response.json();
-        setKeywordData(data);
+        const data = await response.json();
+        setKeywordData({ ...data, keyword: keyword.trim() });
 
         toast({
             title: "Analyse terminée",
@@ -103,6 +118,18 @@ export const KeywordExplorer: React.FC = () => {
       case 'Très Élevé': return 'destructive';
       default: return 'outline';
     }
+  };
+
+  // ⭐ Fonction pour rendre les étoiles
+  const renderStars = (rating: number) => {
+    return [...Array(5)].map((_, index) => (
+      <Star
+        key={index}
+        className={`h-3 w-3 ${
+          index < Math.floor(rating) ? 'text-yellow-400 fill-current' : 'text-gray-300'
+        }`}
+      />
+    ));
   };
 
   return (
@@ -165,7 +192,7 @@ export const KeywordExplorer: React.FC = () => {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <CardTitle className="text-xl">
-                    Analyse de "{keyword}"
+                    Analyse de "{keywordData.keyword}"
                   </CardTitle>
                   <CardDescription className="mt-2">
                     Métriques détaillées de performance sur TPT
@@ -215,7 +242,7 @@ export const KeywordExplorer: React.FC = () => {
                       Produits totaux 
                     </div>
                     <div className="text-2xl font-bold text-secondary">
-                      {keywordData.totalProducts.toLocaleString()} + 
+                      {keywordData.totalProducts.toLocaleString()}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       pour ce mot-clé
@@ -254,8 +281,101 @@ export const KeywordExplorer: React.FC = () => {
                 </Card>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6"> 
+
                 <Card className="p-4">
+                <CardHeader className="px-0 pt-0">
+                  <CardTitle className="flex items-center gap-2 text-x">
+                    <TrendingUp className="h-5 w-5" />
+                    Top 10 Produits les plus populaires pour "{keywordData.keyword}"
+                  </CardTitle>
+                  <CardDescription>
+                    Classés par nombre d'évaluations (indicateur de popularité)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="px-0" >
+                  <div className="space-y-4">
+                    {keywordData.topProducts && keywordData.topProducts.length > 0 ? (
+                      keywordData.topProducts.map((product, index) => (
+                        <div
+                          key={index}
+                          className="flex items-start justify-between bg-muted p-4  hover:bg-accent/20 transition-colors rounded-lg"
+                        >
+                          {/* Partie gauche : Détails du produit */}
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1">
+                                <a
+                                  href={product.url || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-semibold hover:text-indigo-900 hover:underline line-clamp-2 leading-5"
+                                >
+                                  {product.title}
+                                  {product.url && <ExternalLink className="inline h-3 w-3 ml-1" />}
+                                </a>
+                              </div>
+                            </div>
+                            
+                            {/* Magasin */}
+                            <div className="flex items-center gap-2 ml-10">
+                              <Store className="h-3 w-3 text-gray-500" />
+                              <a
+                                href={product.storeUrl || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-gray-600 hover:text-indigo-600 hover:underline"
+                              >
+                                {product.storeName}
+                              </a>
+                            </div>
+                          </div>
+
+                          {/* Partie droite : Métriques */}
+                          <div className="flex flex-col items-end gap-2 ml-4">
+                            {/* Prix */}
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg font-bold text-green-600">
+                                ${product.price.toFixed(2)}
+                              </span>
+                            </div>
+                            
+                            {/* Évaluations */}
+                            <div className="flex items-center gap-2">
+                              <div className="flex">
+                                {renderStars(product.averageRating)}
+                              </div>
+                              <span className="text-sm text-gray-600">
+                                ({product.ratingsCount})
+                              </span>
+                            </div>
+                            
+                            {/* Estimation des ventes */}
+                            <div className="text-right">
+                              <span className="text-xs text-gray-500">
+                                ~{product.estimatedSales.toLocaleString()} ventes
+                              </span>
+                              <div className="text-xs text-green-600 font-medium">
+                                ~${product.estimatedRevenue.toLocaleString()} revenus
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                        <p>Aucun produit trouvé pour ce mot-clé</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+                
+                <Card className="p-4"> 
+
+                  <Card className="p-4">
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <AlertCircle className="h-4 w-4" />
                     Analyse de la concurrence
@@ -288,60 +408,8 @@ export const KeywordExplorer: React.FC = () => {
                       </span>
                     </div>
                   </div>
-
-                
-<Card className="p-4 mt-6">
-  <h3 className="font-semibold mb-4 flex items-center gap-2 text-indigo-600">
-    <TrendingUp className="h-4 w-4 text-indigo-500" />
-    Top 10 Produits pour "{keyword}"
-  </h3>
-  <div className="space-y-3">
-    {/* Placeholder en attendant les données backend */}
-    {[...Array(10)].map((_, i) => (
-      <div
-        key={i}
-        className="flex items-center justify-between p-3 rounded-xl border shadow-sm hover:bg-indigo-50 transition-colors"
-      >
-        {/* Partie gauche : Nom du produit (cliquable) */}
-        <a
-          href="#"
-          className="text-sm font-medium text-indigo-700 hover:underline"
-        >
-          Produit #{i + 1}
-        </a>
-
-        {/* Partie droite : Prix + Évaluation */}
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold text-green-600">
-            $ {(Math.random() * 50 + 10).toFixed(2)}
-          </span>
-
-          {/* Étoiles d’évaluation */}
-          <div className="flex">
-            {[...Array(5)].map((_, starIndex) => (
-              <svg
-                key={starIndex}
-                xmlns="http://www.w3.org/2000/svg"
-                className={`h-4 w-4 ${
-                  starIndex < 4 ? "text-yellow-400" : "text-gray-300"
-                }`}
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.945a1 1 0 00.95.69h4.149c.969 0 1.371 1.24.588 1.81l-3.36 2.44a1 1 0 00-.364 1.118l1.285 3.945c.3.921-.755 1.688-1.54 1.118l-3.36-2.44a1 1 0 00-1.175 0l-3.36 2.44c-.784.57-1.838-.197-1.539-1.118l1.285-3.945a1 1 0 00-.364-1.118l-3.36-2.44c-.783-.57-.38-1.81.588-1.81h4.149a1 1 0 00.95-.69l1.286-3.945z" />
-              </svg>
-            ))}
-          </div>
-        </div>
-      </div>
-    ))}
-  </div>
-</Card>
-
-
                 </Card>
-
-                <Card className="p-4">
+                <br />
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <Search className="h-4 w-4" />
                     Mots-clés suggérés
@@ -351,17 +419,20 @@ export const KeywordExplorer: React.FC = () => {
                       <div 
                         key={index}
                         className="flex items-center justify-between p-2 rounded-lg bg-muted hover:bg-accent/20 transition-colors cursor-pointer"
-                        onClick={() => setKeyword(suggestion.word)} // CORRECTION ICI
+                        onClick={() => setKeyword(suggestion.word)}
                       >
-                        <span className="text-sm">{suggestion.word} ({suggestion.count})</span> {/* MISE À JOUR ICI */}
+                        <span className="text-sm">{suggestion.word} ({suggestion.count})</span>
                         <Button variant="ghost" size="sm">
                           <Search className="h-3 w-3" />
                         </Button>
                       </div>
                     ))}
-                  </div>
-                </Card>
+                  </div> 
+
+                </Card> 
               </div>
+              
+
             </CardContent>
           </Card>
         </div>

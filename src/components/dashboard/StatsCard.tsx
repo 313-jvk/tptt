@@ -1,3 +1,4 @@
+//StatsCard.tsx
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LucideIcon } from 'lucide-react';
@@ -14,6 +15,7 @@ interface StatsCardProps {
     positive: boolean;
   };
   variant?: 'default' | 'success' | 'warning' | 'danger';
+  onClick?: () => void;
 }
 
 export const StatsCard: React.FC<StatsCardProps> = ({
@@ -22,15 +24,24 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   description,
   icon: Icon,
   trend,
-  variant = 'default'
+  variant = 'default',
+  onClick
 }) => {
+  const hasValue = value !== undefined && value !== null && value !== 0;
+  const isClickable = onClick !== undefined;
+  
   return (
-    <Card className={cn(
-      "relative overflow-hidden transition-all duration-300 hover-lift group glass",
-      variant === 'success' && "border-secondary/30 bg-gradient-secondary/10",
-      variant === 'warning' && "border-warning/30 bg-gradient-warning/10",
-      variant === 'default' && "border-primary/20 hover:border-primary/40"
-    )}>
+    <Card 
+      className={cn(
+        "relative overflow-hidden transition-all duration-300 hover-lift group glass",
+        variant === 'success' && "border-secondary/30 bg-gradient-secondary/10",
+        variant === 'warning' && "border-warning/30 bg-gradient-warning/10",
+        variant === 'default' && "border-primary/20 hover:border-primary/40",
+        isClickable && "cursor-pointer hover:shadow-lg",
+        !hasValue && "opacity-60"
+      )}
+      onClick={onClick}
+    >
       <CardContent className="p-6 relative">
         {/* Background glow effect */}
         <div className={cn(
@@ -49,7 +60,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
               "h-5 w-5 transition-all duration-300 group-hover:scale-110",
               variant === 'success' && "text-secondary group-hover:text-secondary-glow",
               variant === 'warning' && "text-warning group-hover:text-warning",
-              variant === 'default' && "text-primary group-hover:text-primary-glow"
+              variant === 'default' && "text-primary group-hover:text-primary-glow",
+              !hasValue && "text-muted-foreground/50"
             )} />
             <div className={cn(
               "absolute inset-0 rounded-full opacity-0 group-hover:opacity-30 blur-md transition-opacity duration-300",
@@ -61,20 +73,27 @@ export const StatsCard: React.FC<StatsCardProps> = ({
         </div>
         
         <div className="space-y-2">
-          <div className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent group-hover:bg-gradient-hero transition-all duration-300">
-            {value}
+          <div className={cn(
+            "text-3xl font-bold transition-all duration-300",
+            hasValue 
+              ? "bg-gradient-primary bg-clip-text text-transparent group-hover:bg-gradient-hero" 
+              : "text-muted-foreground/70"
+          )}>
+            {value || "0"}
           </div>
           {description && (
             <p className="text-xs text-muted-foreground group-hover:text-muted-foreground/80 transition-colors">
               {description}
             </p>
           )}
-          {trend && (
+          
+          {/* Trend indicator */}
+          {trend && hasValue && (
             <div className="flex items-center gap-2">
               <div className={cn(
                 "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all duration-300",
-                trend.positive 
-                  ? "bg-secondary/10 text-secondary border border-secondary/20" 
+                trend.positive
+                  ? "bg-secondary/10 text-secondary border border-secondary/20"
                   : "bg-destructive/10 text-destructive border border-destructive/20"
               )}>
                 <span>
@@ -84,6 +103,13 @@ export const StatsCard: React.FC<StatsCardProps> = ({
               <span className="text-xs text-muted-foreground">
                 {trend.label}
               </span>
+            </div>
+          )}
+          
+          {/* État vide */}
+          {!hasValue && (
+            <div className="text-xs text-muted-foreground/60">
+              Commencez à analyser pour voir vos statistiques
             </div>
           )}
         </div>

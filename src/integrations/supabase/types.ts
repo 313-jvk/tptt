@@ -1,3 +1,4 @@
+//types.ts 
 export type Json =
   | string
   | number
@@ -7,11 +8,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instanciate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "12.2.12 (cd3cf9e)"
-  }
   public: {
     Tables: {
       users: {
@@ -38,9 +34,264 @@ export type Database = {
         }
         Relationships: []
       }
+      keyword_opportunities: {
+        Row: {
+          id: number
+          keyword: string
+          total_products: number | null
+          average_price: number | null
+          average_rating: number | null
+          competition_level: string | null
+          competition_score: number | null
+          opportunity_score: number | null
+          created_at: string | null
+          updated_at: string | null
+          last_scanned_at: string | null
+          is_active: boolean | null
+        }
+        Insert: {
+          keyword: string
+          total_products?: number | null
+          average_price?: number | null
+          average_rating?: number | null
+          competition_level?: string | null
+          competition_score?: number | null
+          opportunity_score?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+          last_scanned_at?: string | null
+          is_active?: boolean | null
+        }
+        Update: {
+          keyword?: string
+          total_products?: number | null
+          average_price?: number | null
+          average_rating?: number | null
+          competition_level?: string | null
+          competition_score?: number | null
+          opportunity_score?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+          last_scanned_at?: string | null
+          is_active?: boolean | null
+        }
+        Relationships: []
+      }
+      trending_products: {
+        Row: {
+          id: number
+          product_url: string
+          title: string | null
+          price: number | null
+          store_name: string | null
+          store_url: string | null
+          ratings_count: number | null
+          average_rating: number | null
+          estimated_sales: number | null
+          estimated_revenue: number | null
+          growth_rate: number | null
+          tags: string[] | null
+          date_added: string | null
+          created_at: string | null
+          updated_at: string | null
+          last_scanned_at: string | null
+          is_trending: boolean | null
+        }
+        Insert: {
+          product_url: string
+          title?: string | null
+          price?: number | null
+          store_name?: string | null
+          store_url?: string | null
+          ratings_count?: number | null
+          average_rating?: number | null
+          estimated_sales?: number | null
+          estimated_revenue?: number | null
+          growth_rate?: number | null
+          tags?: string[] | null
+          date_added?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+          last_scanned_at?: string | null
+          is_trending?: boolean | null
+        }
+        Update: {
+          product_url?: string
+          title?: string | null
+          price?: number | null
+          store_name?: string | null
+          store_url?: string | null
+          ratings_count?: number | null
+          average_rating?: number | null
+          estimated_sales?: number | null
+          estimated_revenue?: number | null
+          growth_rate?: number | null
+          tags?: string[] | null
+          date_added?: string | null
+          created_at?: string | null
+          updated_at?: string | null
+          last_scanned_at?: string | null
+          is_trending?: boolean | null
+        }
+        Relationships: []
+      }
+      user_alerts: {
+        Row: {
+          id: number
+          user_id: number
+          alert_type: string
+          title: string
+          description: string | null
+          data: Json | null
+          is_read: boolean | null
+          is_active: boolean | null
+          created_at: string | null
+          expires_at: string | null
+        }
+        Insert: {
+          user_id: number
+          alert_type: string
+          title: string
+          description?: string | null
+          data?: Json | null
+          is_read?: boolean | null
+          is_active?: boolean | null
+          created_at?: string | null
+          expires_at?: string | null
+        }
+        Update: {
+          user_id?: number
+          alert_type?: string
+          title?: string
+          description?: string | null
+          data?: Json | null
+          is_read?: boolean | null
+          is_active?: boolean | null
+          created_at?: string | null
+          expires_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_alerts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      user_analyses: {
+        Row: {
+          id: number
+          user_id: number
+          analysis_type: string
+          target_url: string | null
+          keyword: string | null
+          title: string | null
+          data: Json
+          created_at: string | null
+        }
+        Insert: {
+          user_id: number
+          analysis_type: string
+          target_url?: string | null
+          keyword?: string | null
+          title?: string | null
+          data: Json
+          created_at?: string | null
+        }
+        Update: {
+          user_id?: number
+          analysis_type?: string
+          target_url?: string | null
+          keyword?: string | null
+          title?: string | null
+          data?: Json
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_analyses_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      user_tracked_keywords: {
+        Row: {
+          id: number
+          user_id: number
+          keyword: string
+          alert_threshold: number | null
+          is_active: boolean | null
+          created_at: string | null
+        }
+        Insert: {
+          user_id: number
+          keyword: string
+          alert_threshold?: number | null
+          is_active?: boolean | null
+          created_at?: string | null
+        }
+        Update: {
+          user_id?: number
+          keyword?: string
+          alert_threshold?: number | null
+          is_active?: boolean | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_tracked_keywords_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      best_opportunities: {
+        Row: {
+          id: number | null
+          keyword: string | null
+          total_products: number | null
+          average_price: number | null
+          average_rating: number | null
+          competition_level: string | null
+          competition_score: number | null
+          opportunity_score: number | null
+          created_at: string | null
+          updated_at: string | null
+          last_scanned_at: string | null
+          is_active: boolean | null
+          data_freshness: string | null
+        }
+      }
+      top_trending_products: {
+        Row: {
+          id: number | null
+          product_url: string | null
+          title: string | null
+          price: number | null
+          store_name: string | null
+          store_url: string | null
+          ratings_count: number | null
+          average_rating: number | null
+          estimated_sales: number | null
+          estimated_revenue: number | null
+          growth_rate: number | null
+          tags: string[] | null
+          date_added: string | null
+          created_at: string | null
+          updated_at: string | null
+          last_scanned_at: string | null
+          is_trending: boolean | null
+          trend_status: string | null
+        }
+      }
     }
     Functions: {
       [_ in never]: never
@@ -54,125 +305,56 @@ export type Database = {
   }
 }
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+// Types d'aide pour les alertes
+export type AlertType = 'keyword_opportunity' | 'trending_product' | 'store_update' | 'price_drop' | 'new_competitor';
+export type AnalysisType = 'product' | 'keyword' | 'store';
+export type CompetitionLevel = 'Faible' | 'Moyen' | 'Élevé' | 'Très Élevé';
+export type TrendStatus = 'hot' | 'trending' | 'stable';
+export type DataFreshness = 'fresh' | 'recent' | 'old';
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
-
-export type Tables<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+// Interfaces pour faciliter l'utilisation
+export interface KeywordOpportunity {
+  id: number;
+  keyword: string;
+  total_products: number;
+  average_price: number;
+  average_rating: number;
+  competition_level: CompetitionLevel;
+  competition_score: number;
+  opportunity_score: number;
+  data_freshness?: DataFreshness;
+  updated_at: string;
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
-    }
-    ? R
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
 
-export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+export interface TrendingProduct {
+  id: number;
+  product_url: string;
+  title: string;
+  price: number;
+  store_name: string;
+  ratings_count: number;
+  growth_rate: number;
+  trend_status?: TrendStatus;
+  tags: string[];
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
 
-export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+export interface UserAlert {
+  id: number;
+  user_id: number;
+  alert_type: AlertType;
+  title: string;
+  description?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
+  is_read: boolean;
+  created_at: string;
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
 
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+export interface DashboardStats {
+  productsAnalyzed: number;
+  keywordsExplored: number;
+  storesTracked: number;
+  potentialProfit: number;
+  newAlerts: number;
+  trendingOpportunities: number;
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const

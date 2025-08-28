@@ -1,3 +1,4 @@
+//App.tsx 
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,9 +10,12 @@ import { Dashboard } from "./pages/Dashboard";
 import { ProductAnalyzer } from "@/components/product/ProductAnalyzer";
 import { KeywordExplorer } from "@/components/keyword/KeywordExplorer";
 import { StoreSpy } from "@/components/store/StoreSpy";
-import { SavedSearches } from "./pages/SavedSearches";
 import { Layout } from "@/components/layout/Layout";
 import NotFound from "./pages/NotFound";
+import { Pricing } from "./pages/Pricing";
+import { Account } from "./pages/Account";
+import { Success } from "./pages/Success";
+import { Cancel } from "./pages/Cancel";
 
 const queryClient = new QueryClient();
 
@@ -41,8 +45,11 @@ const AppContent = () => {
         <Route path="/product-analyzer" element={<ProductAnalyzer />} />
         <Route path="/keyword-explorer" element={<KeywordExplorer />} />
         <Route path="/store-spy" element={<StoreSpy />} />
-        <Route path="/opportunities" element={<Dashboard />} />
-        <Route path="/saved-searches" element={<SavedSearches />} />
+        <Route path="/pricing" element={<Pricing />} />
+        <Route path="/Account" element={<Account />} />
+        <Route path="/Auth" element={<Auth />} /> 
+        <Route path="/Cancel" element={<Cancel />} />
+        <Route path="/Success" element={<Success />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Layout>
