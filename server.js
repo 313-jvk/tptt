@@ -25,7 +25,7 @@ const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
 
 const corsOptions = {
-  origin: 'https://votre-frontend.vercel.app', // Replace with your Vercel URL
+  origin: 'https://https://tptt.vercel.app', // Replace with your Vercel URL
   optionsSuccessStatus: 200
 };
 
