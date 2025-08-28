@@ -10,7 +10,6 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(express.json());
 
 // Configuration PayPal
@@ -1534,6 +1533,6 @@ app.get('/', (req, res) => {
     res.send('Serveur scraping TPT en ligne.');
 });
 
-app.listen(PORT, () => {
-    console.log(`Serveur en écoute sur port ${PORT}`);
+app.listen(process.env.PORT || 3000, () => {
+    console.log(`Serveur en écoute sur port` + (process.env.PORT || 3000));
 });
