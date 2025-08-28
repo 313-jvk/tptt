@@ -25,12 +25,15 @@ const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
 
 const corsOptions = {
-  origin: 'https://https://tptt.vercel.app', // Replace with your Vercel URL
+  origin: 'https://tptt.vercel.app', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Ajoutez toutes les méthodes utilisées
+  allowedHeaders: ['Content-Type', 'Authorization'], // Ajoutez tous les headers utilisés
   optionsSuccessStatus: 200
 };
 
-// Use the cors middleware
-app.use(cors(corsOptions));
+app.use(cors(corsOptions)); // Utilisez le middleware CORS avec les options
+
+app.use(express.json()); 
 
 // Fonction pour obtenir un token d'accès PayPal
 const getPayPalAccessToken = async () => {
