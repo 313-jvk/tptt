@@ -63,6 +63,7 @@
     "next-themes": "^0.3.0",
     "node-fetch": "^3.3.2",
     "pg": "^8.16.3",
+    "puppeteer": "^24.17.1",
     "puppeteer-core": "^24.17.1",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",

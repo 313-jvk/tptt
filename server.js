@@ -1,11 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
-import axios from 'axios';
+import puppeteer from 'puppeteer';
+
+
 import * as dotenv from 'dotenv';
 dotenv.config();
-
 // Charger les variables d'environnement
 
 const app = express();
@@ -1045,21 +1044,15 @@ setTimeout(() => {
 }, 5000); // Attendre 5 secondes après le démarrage
 
 // pour scraping des produits
-
 const scrapeProductData = async (url) => {
     let browser;
     try {
         browser = await puppeteer.launch({
-            // ⭐️ Lignes de code essentielles pour le déploiement
-            args: [...chromium.args, '--hide-scrollbars', '--disable-web-security'],
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-            ignoreHTTPSErrors: true,
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
-
         const page = await browser.newPage();
-        await page.setViewport({ width: 1920, height: 1080 }); // ⭐️ Meilleure pratique pour le scraping
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 }); // ⭐️ Temps d'attente augmenté
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
         const productData = await page.evaluate(() => {
             const data = {};
@@ -1145,7 +1138,7 @@ const scrapeProductData = async (url) => {
 
             let storeUrl = null;
             if (data.storeName) {
-                const storeLinkElement = document.querySelector(`a[href*="/store/${data.storeName.replace(/\s/g, '-')}/"]`);
+                const storeLinkElement = document.querySelector(`a[href*="/store/${data.storeName.replace(/\s/g, '-')}"]`);
                 if (storeLinkElement) {
                     storeUrl = storeLinkElement.href;
                 }
@@ -1164,7 +1157,6 @@ const scrapeProductData = async (url) => {
 
             return data;
         });
-        
         return productData;
     } catch (error) {
         console.error("Erreur produit:", error.message);
