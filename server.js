@@ -7,19 +7,14 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 // Charger les variables d'environnement
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
-// Configuration PayPal
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
 const PAYPAL_BASE_URL = process.env.NODE_ENV === 'production' 
     ? 'https://api-m.paypal.com' 
     : 'https://api-m.sandbox.paypal.com';
 
-// Base de données temporaire en mémoire (remplacez par une vraie DB)
 const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
 
@@ -31,8 +26,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions)); // Utilisez le middleware CORS avec les options
-
-app.use(express.json()); 
 
 // Fonction pour obtenir un token d'accès PayPal
 const getPayPalAccessToken = async () => {
