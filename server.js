@@ -7,25 +7,22 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 // Charger les variables d'environnement
 
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
 app.use(express.json());
 
+// Configuration PayPal
 const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID;
 const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET;
 const PAYPAL_BASE_URL = process.env.NODE_ENV === 'production' 
     ? 'https://api-m.paypal.com' 
     : 'https://api-m.sandbox.paypal.com';
 
+// Base de données temporaire en mémoire (remplacez par une vraie DB)
 const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
-
-const corsOptions = {
-  origin: 'https://tptt.vercel.app', 
-  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Ajoutez toutes les méthodes utilisées
-  allowedHeaders: ['Content-Type', 'Authorization'], // Ajoutez tous les headers utilisés
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions)); // Utilisez le middleware CORS avec les options
 
 // Fonction pour obtenir un token d'accès PayPal
 const getPayPalAccessToken = async () => {
@@ -1526,6 +1523,9 @@ app.get('/', (req, res) => {
     res.send('Serveur scraping TPT en ligne.');
 });
 
-app.listen(process.env.PORT || 3000, () => {
-    console.log(`Serveur en écoute sur port` + (process.env.PORT || 3000));
+app.listen(PORT, () => {
+    console.log(`Serveur en écoute sur port ${PORT}`);
 });
+
+
+//

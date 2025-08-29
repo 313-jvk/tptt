@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/components/auth/AuthContext";
 import { Auth } from "./pages/Auth";
-import { Dashboard } from "./pages/Dashboard";
+import { Dashboard} from "./pages/Dashboard";
 import { ProductAnalyzer } from "@/components/product/ProductAnalyzer";
 import { KeywordExplorer } from "@/components/keyword/KeywordExplorer";
 import { StoreSpy } from "@/components/store/StoreSpy";
