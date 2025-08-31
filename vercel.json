@@ -4,5 +4,11 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ]
-}
+  ],
+
+  "functions": {
+    "server.js": {
+      "maxDuration": 30
+    }
+  }
+} 

@@ -1,11 +1,11 @@
 import express from 'express';
 import cors from 'cors';
 import puppeteer from 'puppeteer';
-
-
+import axios from 'axios';
+import * as cheerio from 'cheerio';
 import * as dotenv from 'dotenv';
+
 dotenv.config();
-// Charger les variables d'environnement
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +23,514 @@ const PAYPAL_BASE_URL = process.env.NODE_ENV === 'production'
 // Base de données temporaire en mémoire (remplacez par une vraie DB)
 const subscriptions = new Map();
 const userSubscriptions = new Map(); // userId -> subscription data
+
+// ============================================
+// FONCTION SCRAPING PRODUITS CORRIGÉE
+// ============================================
+
+// Fonction de scraping simplifiée et plus robuste
+const scrapeProductDataFallback = async (url) => {
+    try {
+        console.log(`[${new Date().toISOString()}] Fallback: Récupération HTTP de ${url}`);
+        
+        // Faire une requête HTTP simple
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            },
+            timeout: 15000,
+            maxRedirects: 5
+        });
+        
+        const html = response.data;
+        console.log(`[${new Date().toISOString()}] HTML reçu, taille: ${html.length} caractères`);
+        
+        // Charger le HTML avec Cheerio (comme jQuery côté serveur)
+        const $ = cheerio.load(html);
+        
+        const data = {};
+
+        // 1. TITRE - Plusieurs méthodes
+        console.log('Extraction titre...');
+        
+        // Méthode 1: Balise title
+        let title = $('title').text().trim();
+        
+        // Méthode 2: Premier h1 qui semble être un titre de produit
+        if (!title || title.includes('Teachers Pay Teachers')) {
+            $('h1').each((i, el) => {
+                const h1Text = $(el).text().trim();
+                if (h1Text && h1Text.length > 10 && !h1Text.includes('Teachers Pay Teachers')) {
+                    title = h1Text;
+                    return false; // break
+                }
+            });
+        }
+        
+        // Méthode 3: Meta property og:title
+        if (!title) {
+            title = $('meta[property="og:title"]').attr('content');
+        }
+        
+        data.title = title || 'Produit TPT';
+        console.log('Titre trouvé:', data.title);
+
+        // 2. PRIX - Recherche de patterns
+        console.log('Extraction prix...');
+        
+        let price = null;
+        
+        // Méthode 1: Chercher dans le texte complet
+        const fullText = $.html();
+        const priceMatches = fullText.match(/\$\s*(\d+(?:\.\d{2})?)/g);
+        
+        if (priceMatches) {
+            for (const match of priceMatches) {
+                const priceValue = parseFloat(match.replace('$', '').trim());
+                if (priceValue > 0 && priceValue < 500) { // Prix raisonnable
+                    price = priceValue;
+                    break;
+                }
+            }
+        }
+        
+        // Méthode 2: Sélecteurs spécifiques (si la structure est connue)
+        if (!price) {
+            const priceElements = [
+                '[class*="price"]',
+                '[data-price]',
+                '.product-price',
+                'span:contains("$")'
+            ];
+            
+            for (const selector of priceElements) {
+                const element = $(selector).first();
+                if (element.length) {
+                    const priceText = element.text();
+                    const priceMatch = priceText.match(/\$\s*(\d+(?:\.\d{2})?)/);
+                    if (priceMatch) {
+                        price = parseFloat(priceMatch[1]);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        data.price = price;
+        console.log('Prix trouvé:', data.price);
+
+        // 3. ÉVALUATIONS - Recherche de patterns numériques
+        console.log('Extraction évaluations...');
+        
+        let ratingsCount = null;
+        const textContent = $.text();
+        
+        const ratingPatterns = [
+            /(\d+)\s*ratings?/i,
+            /(\d+)\s*reviews?/i,
+            /(\d+)\s*évaluations?/i,
+            /ratings?\s*[:\-]\s*(\d+)/i
+        ];
+        
+        for (const pattern of ratingPatterns) {
+            const match = textContent.match(pattern);
+            if (match && match[1]) {
+                const count = parseInt(match[1], 10);
+                if (count > 0 && count < 50000) {
+                    ratingsCount = count;
+                    break;
+                }
+            }
+        }
+        
+        data.ratingsCount = ratingsCount;
+        console.log('Évaluations trouvées:', data.ratingsCount);
+
+        // 4. NOTE MOYENNE
+        console.log('Extraction note moyenne...');
+        
+        let averageRating = null;
+        const avgPatterns = [
+            /(\d\.?\d?)\s*out\s*of\s*5/i,
+            /(\d\.?\d?)\s*\/\s*5/i,
+            /(\d\.?\d?)\s*stars?/i
+        ];
+        
+        for (const pattern of avgPatterns) {
+            const match = textContent.match(pattern);
+            if (match && match[1]) {
+                const rating = parseFloat(match[1]);
+                if (rating > 0 && rating <= 5) {
+                    averageRating = rating;
+                    break;
+                }
+            }
+        }
+        
+        data.averageRating = averageRating;
+        console.log('Note moyenne trouvée:', data.averageRating);
+
+        // 5. NOM DU MAGASIN
+        console.log('Extraction magasin...');
+        
+        let storeName = null;
+        let storeUrl = null;
+        
+        // Chercher les liens vers /store/ ou /Store/
+        $('a[href*="/store/"], a[href*="/Store/"]').each((i, el) => {
+            const linkText = $(el).text().trim();
+            if (linkText && linkText.length > 2 && linkText.length < 100) {
+                storeName = linkText;
+                storeUrl = $(el).attr('href');
+                return false; // break
+            }
+        });
+        
+        data.storeName = storeName || 'Magasin non identifié';
+        data.storeUrl = storeUrl;
+        console.log('Magasin trouvé:', data.storeName);
+
+        // 6. DESCRIPTION
+        console.log('Extraction description...');
+        
+        let description = null;
+        
+        // Méthode 1: Meta description
+        description = $('meta[name="description"]').attr('content');
+        
+        // Méthode 2: Meta property og:description
+        if (!description) {
+            description = $('meta[property="og:description"]').attr('content');
+        }
+        
+        // Méthode 3: Premier paragraphe long
+        if (!description) {
+            $('p').each((i, el) => {
+                const pText = $(el).text().trim();
+                if (pText && pText.length > 50 && pText.length < 500) {
+                    description = pText;
+                    return false; // break
+                }
+            });
+        }
+        
+        data.description = description || 'Description non disponible';
+
+        // 7. TAGS/MOTS-CLÉS
+        console.log('Extraction tags...');
+        
+        const tags = [];
+        
+        // Méthode 1: Meta keywords
+        const metaKeywords = $('meta[name="keywords"]').attr('content');
+        if (metaKeywords) {
+            tags.push(...metaKeywords.split(',').map(k => k.trim()).filter(k => k.length > 1));
+        }
+        
+        // Méthode 2: Chercher dans certaines classes ou structures
+        $('[class*="tag"], [class*="keyword"], .category').each((i, el) => {
+            const tagText = $(el).text().trim();
+            if (tagText && tagText.length > 1 && tagText.length < 50) {
+                tags.push(tagText);
+            }
+        });
+        
+        data.tags = tags.slice(0, 20); // Limiter à 20 tags
+
+        // 8. CALCULS ESTIMÉS
+        console.log('Calcul estimations...');
+        
+        const salesFactor = 10;
+        if (data.ratingsCount && data.ratingsCount > 0) {
+            data.estimatedSales = data.ratingsCount * salesFactor;
+            
+            if (data.price && data.price > 0) {
+                data.estimatedProfit = Math.round(data.price * data.estimatedSales * 100) / 100;
+            }
+        }
+
+        // 9. INFORMATIONS SUPPLÉMENTAIRES
+        data.pageDetails = null; // Difficile à extraire sans JavaScript
+        data.dateAdded = null; // Difficile à extraire sans structure précise
+
+        console.log(`[${new Date().toISOString()}] Fallback terminé:`, {
+            titre: !!data.title,
+            prix: !!data.price,
+            evaluations: !!data.ratingsCount
+        });
+
+        return data;
+
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] Erreur fallback:`, error.message);
+        
+        if (error.code === 'ENOTFOUND') {
+            throw new Error('URL inaccessible ou connexion internet problématique');
+        } else if (error.code === 'ETIMEDOUT') {
+            throw new Error('Timeout: La page TPT met trop de temps à répondre');
+        } else if (error.response && error.response.status === 403) {
+            throw new Error('Accès refusé par TPT. Réessayez plus tard.');
+        } else if (error.response && error.response.status === 404) {
+            throw new Error('Produit non trouvé. Vérifiez l\'URL.');
+        } else {
+            throw new Error(`Erreur lors de la récupération: ${error.message}`);
+        }
+    }
+};
+
+// Fonction principale qui essaie Puppeteer puis fallback
+const scrapeProductDataWithFallback = async (url) => {
+    try {
+        // Essayer d'abord avec Puppeteer (votre fonction existante)
+        console.log('Tentative avec Puppeteer...');
+        return await scrapeProductData(url);
+        
+    } catch (puppeteerError) {
+        console.log(`Puppeteer échoué: ${puppeteerError.message}`);
+        console.log('Tentative avec méthode fallback...');
+        
+        try {
+            const fallbackData = await scrapeProductDataFallback(url);
+            
+            // Ajouter une note indiquant que c'est un fallback
+            fallbackData.extractionMethod = 'fallback';
+            fallbackData.note = 'Données extraites avec méthode simplifiée - certaines informations peuvent être limitées';
+            
+            return fallbackData;
+            
+        } catch (fallbackError) {
+            console.log(`Fallback aussi échoué: ${fallbackError.message}`);
+            throw new Error(`Impossible d'analyser le produit avec les deux méthodes. Puppeteer: ${puppeteerError.message}. Fallback: ${fallbackError.message}`);
+        }
+    }
+}; 
+
+// ============================================
+// ENDPOINTS PRODUITS AVEC GESTION D'ERREURS AMÉLIORÉE
+// ============================================
+
+// Endpoint de test pour vérifier le statut du scraping
+app.get('/api/scraper/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        puppeteer: 'ready',
+        environment: process.env.NODE_ENV || 'development',
+        memory: process.memoryUsage()
+    });
+});
+
+// Endpoint de test simple
+app.post('/api/test-product', async (req, res) => {
+    try {
+        res.json({
+            message: 'Test endpoint fonctionnel',
+            receivedUrl: req.body.url || 'Aucune URL',
+            environment: process.env.NODE_ENV || 'development',
+            timestamp: new Date().toISOString(),
+            puppeteerAvailable: !!puppeteer
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            error: error.message 
+        });
+    }
+});
+
+// Endpoint principal pour analyser un produit
+// Remplacer votre endpoint /api/analyze-product par cette version :
+
+app.post('/api/analyze-product', async (req, res) => {
+    const startTime = Date.now();
+    const { url } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'URL produit requise.' 
+        });
+    }
+
+    // Validation de l'URL TPT
+    const validPatterns = [
+        'teacherspayteachers.com/Product/',
+        'tpt.com/Product/'
+    ];
+    
+    const isValidUrl = validPatterns.some(pattern => url.includes(pattern));
+    
+    if (!isValidUrl) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'URL de produit TPT invalide. Veuillez utiliser une URL complète de produit contenant "/Product/".' 
+        });
+    }
+
+    try {
+        console.log(`[${new Date().toISOString()}] 🚀 Analyse produit démarrée: ${url}`);
+        
+        // Utiliser la fonction avec fallback
+        const data = await scrapeProductDataWithFallback(url);
+        
+        const processingTime = Date.now() - startTime;
+        console.log(`[${new Date().toISOString()}] ✅ Analyse produit terminée en ${processingTime}ms`);
+        
+        res.status(200).json({
+            success: true,
+            processingTime: `${processingTime}ms`,
+            timestamp: new Date().toISOString(),
+            ...data
+        });
+        
+    } catch (error) {
+        const processingTime = Date.now() - startTime;
+        console.error(`[${new Date().toISOString()}] ❌ Erreur analyse produit (${processingTime}ms):`, error.message);
+        
+        // Différents codes d'erreur selon le type d'erreur
+        let statusCode = 500;
+        if (error.message.includes('timeout')) {
+            statusCode = 408; // Request Timeout
+        } else if (error.message.includes('invalide') || error.message.includes('URL')) {
+            statusCode = 400; // Bad Request
+        } else if (error.message.includes('réseau') || error.message.includes('network')) {
+            statusCode = 503; // Service Unavailable
+        }
+        
+        res.status(statusCode).json({ 
+            success: false,
+            message: error.message,
+            processingTime: `${processingTime}ms`,
+            timestamp: new Date().toISOString(),
+            errorType: error.name || 'ScrapingError'
+        });
+    }
+});
+
+app.post('/api/test-fallback', async (req, res) => {
+    const { url } = req.body;
+    
+    try {
+        console.log('Test de la méthode fallback uniquement...');
+        const data = await scrapeProductDataFallback(url);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+}); 
+
+
+// Endpoint de diagnostic pour comprendre ce qui ne va pas
+app.post('/api/diagnose-page', async (req, res) => {
+    let browser;
+    const { url } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({ error: 'URL requise' });
+    }
+    
+    try {
+        console.log('🔍 Diagnostic démarré pour:', url);
+        
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+
+        const page = await browser.newPage();
+        
+        await page.goto(url, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 30000 
+        });
+
+        // Prendre une capture d'écran pour voir ce qui se charge
+        const screenshot = await page.screenshot({ 
+            encoding: 'base64',
+            fullPage: false,
+            clip: { x: 0, y: 0, width: 1280, height: 800 }
+        });
+
+        const diagnostics = await page.evaluate(() => {
+            return {
+                // Informations de base
+                title: document.title,
+                url: window.location.href,
+                
+                // Vérifier si c'est bien TPT
+                isTptDomain: window.location.hostname.includes('teacherspayteachers'),
+                
+                // Compter les éléments
+                totalElements: document.querySelectorAll('*').length,
+                h1Count: document.querySelectorAll('h1').length,
+                h1Texts: Array.from(document.querySelectorAll('h1')).map(h1 => h1.textContent.trim()),
+                
+                // Chercher des éléments de prix
+                elementsWithDollar: Array.from(document.querySelectorAll('*')).filter(el => 
+                    el.textContent && el.textContent.includes('$')
+                ).length,
+                
+                // Chercher des éléments avec "rating"
+                elementsWithRating: Array.from(document.querySelectorAll('*')).filter(el => 
+                    el.textContent && el.textContent.toLowerCase().includes('rating')
+                ).length,
+                
+                // Liens vers des stores
+                storeLinks: Array.from(document.querySelectorAll('a[href*="/store/"], a[href*="/Store/"]'))
+                    .map(a => ({
+                        text: a.textContent.trim(),
+                        href: a.href
+                    })).slice(0, 5),
+                
+                // Métadonnées
+                metaDescription: document.querySelector('meta[name="description"]')?.getAttribute('content'),
+                
+                // Vérifier s'il y a des erreurs JavaScript
+                hasErrors: window.jsErrors ? window.jsErrors.length > 0 : false,
+                
+                // Échantillon du contenu textuel
+                bodyTextSample: document.body.textContent.substring(0, 1000),
+                
+                // Vérifier la structure de la page
+                hasProductStructure: {
+                    hasTitle: document.querySelectorAll('h1').length > 0,
+                    hasPrice: document.body.textContent.includes('$'),
+                    hasRatings: document.body.textContent.toLowerCase().includes('rating') ||
+                               document.body.textContent.toLowerCase().includes('review'),
+                    hasStore: document.querySelectorAll('a[href*="/store/"]').length > 0
+                }
+            };
+        });
+
+        res.json({
+            success: true,
+            diagnostics,
+            screenshot: `data:image/png;base64,${screenshot}`,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Erreur diagnostic:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
+    } finally {
+        if (browser) {
+            await browser.close();
+        }
+    }
+}); 
+
+// ============================================
+// FONCTIONS PAYPAL (VOTRE CODE EXISTANT)
+// ============================================
 
 // Fonction pour obtenir un token d'accès PayPal
 const getPayPalAccessToken = async () => {
@@ -86,12 +594,12 @@ app.post('/api/paypal/create-subscription', async (req, res) => {
                     payer_selected: "PAYPAL",
                     payee_preferred: "IMMEDIATE_PAYMENT_REQUIRED"
                 },
-                // 🔹 Configuration pour accepter les cartes de crédit/débit
+                // Configuration pour accepter les cartes de crédit/débit
                 payment_types: [
                     "PAYPAL",
                     "CARD"  // Permet les paiements par carte
                 ],
-                // 🔹 Configuration des cartes acceptées
+                // Configuration des cartes acceptées
                 card_types: [
                     "VISA",
                     "MASTERCARD", 
@@ -284,7 +792,7 @@ app.get('/api/user/:userId/subscription', (req, res) => {
     });
 });
 
-// 🔹 Nouveau endpoint pour vérifier la configuration PayPal
+// Endpoint pour vérifier la configuration PayPal
 app.get('/api/paypal/config-status', (req, res) => {
     const isConfigured = !!(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
     
@@ -295,7 +803,7 @@ app.get('/api/paypal/config-status', (req, res) => {
     });
 });
 
-// 🔹 Endpoints pour les pages de retour PayPal
+// Endpoints pour les pages de retour PayPal
 app.get('/subscription/success', (req, res) => {
     const { subscription_id, ba_token } = req.query;
     
@@ -308,61 +816,6 @@ app.get('/subscription/cancel', (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/subscription/cancel`);
 });
-
-// Middleware pour vérifier les limites d'utilisation
-const checkUsageLimit = async (userId, feature) => {
-    const userSub = userSubscriptions.get(userId);
-    
-    // Si pas d'abonnement ou abonnement gratuit
-    if (!userSub || userSub.planId === 'free' || !userSub.isActive) {
-        const limits = {
-            'product-analysis': 5,
-            'keyword-search': 3,
-            'store-analysis': 1
-        };
-        
-        // Ici vous devriez vérifier l'usage depuis votre base de données
-        // Pour l'exemple, on assume que l'usage est OK
-        return { allowed: true, remaining: limits[feature] };
-    }
-    
-    // Plans payants
-    if (userSub.planId.includes('pro')) {
-        const limits = {
-            'product-analysis': 50,
-            'keyword-search': 25,
-            'store-analysis': 10
-        };
-        return { allowed: true, remaining: limits[feature] };
-    }
-    
-    // Plan expert - illimité
-    return { allowed: true, remaining: -1 }; // -1 = illimité
-};
-
-// Middleware d'authentification et de limitation
-const authAndLimitMiddleware = (feature) => {
-    return async (req, res, next) => {
-        const userId = req.headers['user-id']; // À adapter selon votre système d'auth
-        
-        if (!userId) {
-            return res.status(401).json({ error: 'Authentification requise' });
-        }
-        
-        const usage = await checkUsageLimit(userId, feature);
-        
-        if (!usage.allowed) {
-            return res.status(403).json({ 
-                error: 'Limite d\'utilisation atteinte',
-                message: 'Veuillez upgrader votre plan pour continuer'
-            });
-        }
-        
-        req.userId = userId;
-        req.usageRemaining = usage.remaining;
-        next();
-    };
-};
 
 // Webhook PayPal pour les événements d'abonnement
 app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), (req, res) => {
@@ -431,880 +884,11 @@ app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), (req,
     }
 });
 
-
-
-// Ajouter ces endpoints à votre server.js après les endpoints existants
-
 // ============================================
-// ENDPOINTS POUR LE DASHBOARD FONCTIONNEL
+// AUTRES FONCTIONS DE SCRAPING (VOTRE CODE EXISTANT)
 // ============================================
 
-// Endpoint pour récupérer les opportunités de mots-clés
-app.get('/api/dashboard/opportunities', async (req, res) => {
-    try {
-        const { userId } = req.query;
-        
-        // Récupérer les meilleures opportunités (limitées à 6 pour le dashboard)
-        const opportunities = await getDashboardOpportunities();
-        
-        // Si l'utilisateur a des mots-clés suivis, personnaliser les recommandations
-        let personalizedOpportunities = opportunities;
-        if (userId) {
-            personalizedOpportunities = await getPersonalizedOpportunities(userId, opportunities);
-        }
-        
-        res.json({
-            success: true,
-            opportunities: personalizedOpportunities.slice(0, 6),
-            total: personalizedOpportunities.length
-        });
-        
-    } catch (error) {
-        console.error('Erreur récupération opportunités:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors de la récupération des opportunités' 
-        });
-    }
-});
-
-// Endpoint pour récupérer les produits tendance
-app.get('/api/dashboard/trending', async (req, res) => {
-    try {
-        const { limit = 5 } = req.query;
-        
-        const trendingProducts = await getTrendingProducts(parseInt(limit));
-        
-        res.json({
-            success: true,
-            trending: trendingProducts,
-            total: trendingProducts.length
-        });
-        
-    } catch (error) {
-        console.error('Erreur récupération tendances:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors de la récupération des tendances' 
-        });
-    }
-});
-
-// Endpoint pour récupérer les alertes utilisateur
-app.get('/api/dashboard/alerts/:userId', async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { limit = 10 } = req.query;
-        
-        const alerts = await getUserAlerts(parseInt(userId), parseInt(limit));
-        
-        res.json({
-            success: true,
-            alerts,
-            unreadCount: alerts.filter(alert => !alert.is_read).length
-        });
-        
-    } catch (error) {
-        console.error('Erreur récupération alertes:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors de la récupération des alertes' 
-        });
-    }
-});
-
-// Endpoint pour récupérer les stats utilisateur
-app.get('/api/dashboard/stats/:userId', async (req, res) => {
-    try {
-        const { userId } = req.params;
-        
-        const stats = await getUserDashboardStats(parseInt(userId));
-        
-        res.json({
-            success: true,
-            stats
-        });
-        
-    } catch (error) {
-        console.error('Erreur récupération stats:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors de la récupération des statistiques' 
-        });
-    }
-});
-
-// Endpoint pour scanner et mettre à jour les opportunités (tâche automatique)
-app.post('/api/dashboard/scan-opportunities', async (req, res) => {
-    try {
-        const { keywords } = req.body; // Array de mots-clés à scanner
-        
-        if (!keywords || !Array.isArray(keywords)) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Liste de mots-clés requise' 
-            });
-        }
-        
-        const results = await scanKeywordsForOpportunities(keywords);
-        
-        res.json({
-            success: true,
-            scanned: results.length,
-            opportunities: results.filter(r => r.success).length,
-            errors: results.filter(r => !r.success).length
-        });
-        
-    } catch (error) {
-        console.error('Erreur scan opportunités:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors du scan des opportunités' 
-        });
-    }
-});
-
-// Endpoint pour marquer une alerte comme lue
-app.patch('/api/dashboard/alerts/:alertId/read', async (req, res) => {
-    try {
-        const { alertId } = req.params;
-        const { userId } = req.body;
-        
-        await markAlertAsRead(parseInt(alertId), parseInt(userId));
-        
-        res.json({ success: true });
-        
-    } catch (error) {
-        console.error('Erreur marquer alerte:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erreur lors de la mise à jour de l\'alerte' 
-        });
-    }
-});
-
-// ============================================
-// FONCTIONS UTILITAIRES POUR LE DASHBOARD
-// ============================================
-
-// Simuler une base de données en mémoire pour la démo (remplacer par Supabase)
-let keywordOpportunities = [
-    {
-        id: 1,
-        keyword: 'phonics worksheets',
-        total_products: 8500,
-        average_price: 4.50,
-        average_rating: 4.2,
-        competition_level: 'Faible',
-        competition_score: 25,
-        opportunity_score: 85,
-        updated_at: new Date().toISOString()
-    },
-    {
-        id: 2,
-        keyword: 'sight words activities',
-        total_products: 6200,
-        average_price: 2.90,
-        average_rating: 4.3,
-        competition_level: 'Faible',
-        competition_score: 18,
-        opportunity_score: 78,
-        updated_at: new Date().toISOString()
-    },
-    {
-        id: 3,
-        keyword: 'math centers kindergarten',
-        total_products: 12000,
-        average_price: 5.20,
-        average_rating: 4.4,
-        competition_level: 'Moyen',
-        competition_score: 45,
-        opportunity_score: 72,
-        updated_at: new Date().toISOString()
-    }
-];
-
-let trendingProducts = [
-    {
-        id: 1,
-        product_url: 'https://www.teacherspayteachers.com/Product/Math-Game-123',
-        title: 'Interactive Math Centers for Kindergarten',
-        price: 5.99,
-        store_name: 'MathMagicStore',
-        ratings_count: 145,
-        average_rating: 4.8,
-        growth_rate: 85.5,
-        tags: ['math', 'kindergarten', 'centers'],
-        updated_at: new Date().toISOString()
-    },
-    {
-        id: 2,
-        product_url: 'https://www.teacherspayteachers.com/Product/Reading-Bundle-456',
-        title: 'Phonics Reading Bundle - Complete Set',
-        price: 8.50,
-        store_name: 'ReadingCornerShop',
-        ratings_count: 89,
-        average_rating: 4.6,
-        growth_rate: 72.3,
-        tags: ['phonics', 'reading', 'bundle'],
-        updated_at: new Date().toISOString()
-    }
-];
-
-let userAlertsStore = new Map(); // userId -> alerts[]
-
-async function getDashboardOpportunities() {
-    // Trier par score d'opportunité décroissant
-    return keywordOpportunities
-        .filter(opp => opp.opportunity_score > 60)
-        .sort((a, b) => b.opportunity_score - a.opportunity_score);
-}
-
-async function getPersonalizedOpportunities(userId, opportunities) {
-    // Récupérer les mots-clés que l'utilisateur a déjà analysés
-    const userAnalyses = JSON.parse(localStorage.getItem(`userKeywords_${userId}`) || '[]');
-    const analyzedKeywords = userAnalyses.map(analysis => analysis.keyword?.toLowerCase());
-    
-    // Prioriser les opportunités liées aux intérêts de l'utilisateur
-    return opportunities.map(opp => ({
-        ...opp,
-        isPersonalized: analyzedKeywords.some(keyword => 
-            opp.keyword.toLowerCase().includes(keyword) || 
-            keyword.includes(opp.keyword.toLowerCase())
-        )
-    })).sort((a, b) => {
-        if (a.isPersonalized && !b.isPersonalized) return -1;
-        if (!a.isPersonalized && b.isPersonalized) return 1;
-        return b.opportunity_score - a.opportunity_score;
-    });
-}
-
-async function getTrendingProducts(limit = 5) {
-    return trendingProducts
-        .filter(product => product.growth_rate > 30)
-        .sort((a, b) => b.growth_rate - a.growth_rate)
-        .slice(0, limit);
-}
-
-async function getUserAlerts(userId, limit = 10) {
-    if (!userAlertsStore.has(userId)) {
-        // Créer des alertes d'exemple pour les nouveaux utilisateurs
-        const exampleAlerts = [
-            {
-                id: Date.now(),
-                user_id: userId,
-                alert_type: 'keyword_opportunity',
-                title: 'Nouvelle opportunité détectée !',
-                description: 'Le mot-clé "phonics worksheets" présente une faible concurrence avec un bon potentiel de prix.',
-                data: { keyword: 'phonics worksheets', opportunity_score: 85 },
-                is_read: false,
-                created_at: new Date().toISOString()
-            },
-            {
-                id: Date.now() + 1,
-                user_id: userId,
-                alert_type: 'trending_product',
-                title: 'Produit en forte croissance',
-                description: 'Un produit de math centers connaît une croissance de +85% cette semaine.',
-                data: { product_title: 'Interactive Math Centers', growth_rate: 85.5 },
-                is_read: false,
-                created_at: new Date(Date.now() - 3600000).toISOString() // 1h ago
-            }
-        ];
-        userAlertsStore.set(userId, exampleAlerts);
-    }
-    
-    return userAlertsStore.get(userId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, limit);
-}
-
-async function getUserDashboardStats(userId) {
-    // Récupérer les analyses de l'utilisateur depuis localStorage ou base de données
-    const userAnalyses = JSON.parse(localStorage.getItem(`userAnalyses_${userId}`) || '[]');
-    const userKeywords = JSON.parse(localStorage.getItem(`userKeywords_${userId}`) || '[]');
-    const userStores = JSON.parse(localStorage.getItem(`userStores_${userId}`) || '[]');
-    
-    const thisMonth = new Date().getMonth();
-    const thisWeek = getWeekNumber(new Date());
-    
-    const monthlyAnalyses = userAnalyses.filter(analysis => {
-        const analysisMonth = new Date(analysis.date).getMonth();
-        return analysisMonth === thisMonth;
-    });
-    
-    const weeklyKeywords = userKeywords.filter(keyword => {
-        const keywordWeek = getWeekNumber(new Date(keyword.date));
-        return keywordWeek === thisWeek;
-    });
-    
-    const totalPotentialProfit = userAnalyses.reduce((total, analysis) => {
-        return total + (analysis.estimatedProfit || 0);
-    }, 0);
-    
-    const alerts = await getUserAlerts(userId, 100);
-    const unreadAlerts = alerts.filter(alert => !alert.is_read).length;
-    
-    // Compter les opportunités de tendance basées sur les analyses de l'utilisateur
-    const trendingOpportunities = await getTrendingOpportunities(userId);
-    
-    return {
-        productsAnalyzed: monthlyAnalyses.length,
-        keywordsExplored: weeklyKeywords.length,
-        storesTracked: userStores.length,
-        potentialProfit: Math.round(totalPotentialProfit),
-        newAlerts: unreadAlerts,
-        trendingOpportunities: trendingOpportunities.length,
-        trends: {
-            products: calculateTrend(monthlyAnalyses.length, Math.max(0, monthlyAnalyses.length - 3)),
-            keywords: Math.max(0, weeklyKeywords.length - 2),
-            stores: Math.max(0, userStores.length - 1),
-            profit: Math.round(((totalPotentialProfit - 5000) / 5000) * 100)
-        }
-    };
-}
-
-async function getTrendingOpportunities(userId) {
-    // Récupérer les analyses de l'utilisateur pour personnaliser les opportunités
-    const userKeywords = JSON.parse(localStorage.getItem(`userKeywords_${userId}`) || '[]');
-    const analyzedKeywords = userKeywords.map(k => k.keyword?.toLowerCase());
-    
-    // Filtrer les opportunités basées sur les intérêts de l'utilisateur
-    const opportunities = await getDashboardOpportunities();
-    return opportunities.filter(opp => 
-        opp.opportunity_score > 70 && 
-        analyzedKeywords.some(keyword => 
-            opp.keyword.toLowerCase().includes(keyword) || 
-            keyword.includes(opp.keyword.toLowerCase())
-        )
-    );
-}
-
-async function scanKeywordsForOpportunities(keywords) {
-    const results = [];
-    
-    for (const keyword of keywords) {
-        try {
-            // Utiliser votre fonction existante de scraping
-            const keywordData = await scrapeKeywordData(keyword);
-            
-            // Calculer le score d'opportunité
-            const opportunityScore = calculateOpportunityScore(keywordData);
-            
-            // Sauvegarder dans la "base de données" (remplacer par Supabase)
-            const opportunity = {
-                id: Date.now() + Math.random(),
-                keyword: keyword,
-                total_products: keywordData.totalProducts,
-                average_price: keywordData.averagePrice,
-                average_rating: keywordData.averageRating,
-                competition_level: keywordData.competitionLevel,
-                competition_score: keywordData.competitionScore,
-                opportunity_score: opportunityScore,
-                updated_at: new Date().toISOString()
-            };
-            
-            // Ajouter ou mettre à jour l'opportunité
-            const existingIndex = keywordOpportunities.findIndex(opp => opp.keyword === keyword);
-            if (existingIndex >= 0) {
-                keywordOpportunities[existingIndex] = opportunity;
-            } else {
-                keywordOpportunities.push(opportunity);
-            }
-            
-            results.push({ keyword, success: true, data: opportunity });
-            
-            // Créer des alertes si l'opportunité est intéressante
-            if (opportunityScore > 70) {
-                await createOpportunityAlert(keyword, opportunity);
-            }
-            
-        } catch (error) {
-            console.error(`Erreur scan mot-clé ${keyword}:`, error);
-            results.push({ keyword, success: false, error: error.message });
-        }
-    }
-    
-    return results;
-}
-
-function calculateOpportunityScore(keywordData) {
-    let score = 0;
-    
-    // Score basé sur la concurrence
-    switch (keywordData.competitionLevel) {
-        case 'Faible':
-            score += 40;
-            break;
-        case 'Moyen':
-            score += 25;
-            break;
-        case 'Élevé':
-            score += 10;
-            break;
-        default:
-            score += 5;
-    }
-    
-    // Score basé sur le prix moyen
-    if (keywordData.averagePrice > 5) {
-        score += 25;
-    } else if (keywordData.averagePrice > 3) {
-        score += 15;
-    } else if (keywordData.averagePrice > 1) {
-        score += 10;
-    }
-    
-    // Score basé sur la note moyenne
-    if (keywordData.averageRating > 4.0) {
-        score += 15;
-    } else if (keywordData.averageRating > 3.5) {
-        score += 10;
-    }
-    
-    // Score basé sur le nombre total de produits (sweet spot)
-    if (keywordData.totalProducts < 5000) {
-        score += 20; // Très peu de concurrence
-    } else if (keywordData.totalProducts < 15000) {
-        score += 15; // Concurrence gérable
-    } else if (keywordData.totalProducts < 30000) {
-        score += 5; // Concurrence modérée
-    }
-    
-    return Math.min(100, score);
-}
-
-async function createOpportunityAlert(keyword, opportunity) {
-    const alertData = {
-        id: Date.now() + Math.random(),
-        alert_type: 'keyword_opportunity',
-        title: `🎯 Opportunité détectée : "${keyword}"`,
-        description: `Score d'opportunité: ${opportunity.opportunity_score}/100. Concurrence ${opportunity.competition_level.toLowerCase()}, prix moyen ${opportunity.average_price}.`,
-        data: { keyword, opportunity_score: opportunity.opportunity_score, competition_level: opportunity.competition_level },
-        is_read: false,
-        created_at: new Date().toISOString()
-    };
-    
-    // Ajouter l'alerte à tous les utilisateurs actifs (ou personnaliser par utilisateur)
-    // Pour la démo, on l'ajoute à un utilisateur fictif
-    const defaultUserId = 1;
-    if (!userAlertsStore.has(defaultUserId)) {
-        userAlertsStore.set(defaultUserId, []);
-    }
-    userAlertsStore.get(defaultUserId).unshift(alertData);
-}
-
-async function markAlertAsRead(alertId, userId) {
-    if (!userAlertsStore.has(userId)) return;
-    
-    const alerts = userAlertsStore.get(userId);
-    const alert = alerts.find(a => a.id === alertId);
-    if (alert) {
-        alert.is_read = true;
-    }
-}
-
-// Fonction utilitaire pour obtenir le numéro de semaine
-function getWeekNumber(date) {
-    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-    const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
-    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-}
-
-function calculateTrend(current, previous) {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return Math.round(((current - previous) / previous) * 100);
-}
-
-// Tâche automatique pour scanner les opportunités (à exécuter périodiquement)
-async function runOpportunityScanner() {
-    console.log('🔍 Démarrage du scan automatique des opportunités...');
-    
-    const popularKeywords = [
-        'phonics worksheets',
-        'math centers kindergarten',
-        'reading comprehension',
-        'sight words activities',
-        'science experiments elementary',
-        'writing prompts',
-        'spelling activities',
-        'fraction worksheets',
-        'alphabet activities',
-        'social studies projects'
-    ];
-    
-    try {
-        const results = await scanKeywordsForOpportunities(popularKeywords);
-        console.log(`✅ Scan terminé: ${results.filter(r => r.success).length} opportunités trouvées`);
-        return results;
-    } catch (error) {
-        console.error('❌ Erreur lors du scan automatique:', error);
-        return [];
-    }
-}
-
-// Programmer le scan automatique toutes les 4 heures
-setInterval(() => {
-    runOpportunityScanner();
-}, 4 * 60 * 60 * 1000); // 4 heures
-
-// Endpoint pour déclencher manuellement un scan
-app.post('/api/dashboard/manual-scan', async (req, res) => {
-    try {
-        console.log('🔄 Scan manuel déclenché...');
-        const results = await runOpportunityScanner();
-        
-        res.json({
-            success: true,
-            message: 'Scan terminé avec succès',
-            results: {
-                total: results.length,
-                successful: results.filter(r => r.success).length,
-                failed: results.filter(r => !r.success).length
-            }
-        });
-    } catch (error) {
-        console.error('Erreur scan manuel:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Erreur lors du scan manuel'
-        });
-    }
-});
-
-// ============================================
-// ENDPOINTS POUR LES PRODUITS TENDANCE
-// ============================================
-
-// Simuler la détection de produits tendance
-async function updateTrendingProducts() {
-    console.log('📈 Mise à jour des produits tendance...');
-    
-    // Ici vous pourriez scanner des produits récents sur TPT et calculer leur taux de croissance
-    // Pour la démo, on simule avec des données
-    
-    const newTrendingProduct = {
-        id: Date.now(),
-        product_url: 'https://www.teacherspayteachers.com/Product/New-Science-Kit-' + Math.random(),
-        title: 'STEM Activity Pack - Weather Science',
-        price: 6.75,
-        store_name: 'ScienceStarsTeacher',
-        ratings_count: 34,
-        average_rating: 4.7,
-        growth_rate: 95.2, // Croissance élevée
-        tags: ['science', 'STEM', 'weather', 'elementary'],
-        updated_at: new Date().toISOString()
-    };
-    
-    trendingProducts.unshift(newTrendingProduct);
-    
-    // Garder seulement les 20 produits les plus récents
-    trendingProducts = trendingProducts.slice(0, 20);
-    
-    // Créer une alerte pour le produit tendance
-    await createTrendingProductAlert(newTrendingProduct);
-    
-    console.log('✅ Produits tendance mis à jour');
-}
-
-async function createTrendingProductAlert(product) {
-    const alertData = {
-        id: Date.now() + Math.random(),
-        alert_type: 'trending_product',
-        title: `🔥 Produit en forte croissance détecté !`,
-        description: `"${product.title}" connaît une croissance de ${product.growth_rate}% avec ${product.ratings_count} évaluations récentes.`,
-        data: { 
-            product_url: product.product_url, 
-            title: product.title,
-            growth_rate: product.growth_rate,
-            store_name: product.store_name 
-        },
-        is_read: false,
-        created_at: new Date().toISOString()
-    };
-    
-    // Ajouter à tous les utilisateurs
-    const defaultUserId = 1;
-    if (!userAlertsStore.has(defaultUserId)) {
-        userAlertsStore.set(defaultUserId, []);
-    }
-    userAlertsStore.get(defaultUserId).unshift(alertData);
-}
-
-// Programmer la mise à jour des produits tendance toutes les 2 heures
-setInterval(() => {
-    updateTrendingProducts();
-}, 2 * 60 * 60 * 1000); // 2 heures
-
-// Lancer le premier scan au démarrage du serveur
-setTimeout(() => {
-    console.log('🚀 Démarrage des tâches automatiques du Dashboard...');
-    runOpportunityScanner();
-    updateTrendingProducts();
-}, 5000); // Attendre 5 secondes après le démarrage
-
-// pour scraping des produits
-const scrapeProductData = async (url) => {
-    let browser;
-    try {
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-
-        const productData = await page.evaluate(() => {
-            const data = {};
-            let jsonLdData = null;
-            try {
-                const scriptElement = document.querySelector('script[type="application/ld+json"]');
-                if (scriptElement) {
-                    jsonLdData = JSON.parse(scriptElement.textContent);
-                    if (jsonLdData && jsonLdData['@type'] === 'Product') {
-                        data.title = jsonLdData.name || null;
-                        data.description = jsonLdData.description || null;
-                        data.price = jsonLdData.offers?.price ? parseFloat(jsonLdData.offers.price) : null;
-                        data.storeName = jsonLdData.brand?.name || null;
-                        data.averageRating = jsonLdData.aggregateRating?.ratingValue ? parseFloat(jsonLdData.aggregateRating.ratingValue) : null;
-                        data.ratingsCount = jsonLdData.aggregateRating?.reviewCount ? parseInt(jsonLdData.aggregateRating.reviewCount, 10) : null;
-                        data.image = Array.isArray(jsonLdData.image) ? jsonLdData.image[0] : jsonLdData.image;
-                        if (jsonLdData.releaseDate) {
-                            const date = new Date(jsonLdData.releaseDate);
-                            data.dateAdded = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Erreur JSON-LD:', e);
-            }
-
-            if (!data.title) {
-                const titleElement = document.querySelector('h1[itemprop="name"] span');
-                data.title = titleElement ? titleElement.textContent.trim() : null;
-            }
-
-            if (!data.price) {
-                const priceElement = document.querySelector('span[itemprop="price"]');
-                const priceText = priceElement ? priceElement.textContent.trim() : 'N/A';
-                data.price = priceText !== 'N/A' ? parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')) : null;
-            }
-
-            const keywords = [];
-            const productMetadataSection = document.querySelector('div[class*="ProductRowCard-module__cardMetadata--"] section');
-            if (productMetadataSection) {
-                const rows = productMetadataSection.querySelectorAll('div[class*="MetadataFacetSection__row"]');
-                rows.forEach(row => {
-                    const gradeText = row.querySelector('div:first-child')?.textContent.trim() || '';
-                    if (gradeText.includes('th') || gradeText.includes('nd') || gradeText.includes('st')) {
-                        const tagsText = row.querySelector('div:last-child')?.textContent.trim();
-                        if (tagsText) {
-                            tagsText.split(',').forEach(tag => {
-                                const trimmedTag = tag.trim();
-                                if (trimmedTag) {
-                                    keywords.push(trimmedTag);
-                                }
-                            });
-                        }
-                    }
-                });
-            }
-            data.tags = keywords;
-            
-            const ccssStandards = [];
-            const ccssSection = document.evaluate(
-                "//div[./div[contains(text(), 'CCSS')]]",
-                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
-            ).singleNodeValue;
-
-            if (ccssSection) {
-                const standardElements = ccssSection.querySelectorAll('div[class*="StandardsList"] > div');
-                standardElements.forEach(el => {
-                    const text = el.textContent.trim();
-                    if (text && text.length > 1) { 
-                           ccssStandards.push(text.replace(/,$/, ''));
-                    }
-                });
-            }
-            data.ccss = ccssStandards;
-
-            let pageDetails = null;
-            const textContent = document.body.innerText;
-            const match = textContent.match(/(\d+)\s*(page|pages)/i);
-            if (match && match[1]) {
-                pageDetails = parseInt(match[1], 10);
-            }
-            data.pageDetails = pageDetails;
-
-            let storeUrl = null;
-            if (data.storeName) {
-                const storeLinkElement = document.querySelector(`a[href*="/store/${data.storeName.replace(/\s/g, '-')}"]`);
-                if (storeLinkElement) {
-                    storeUrl = storeLinkElement.href;
-                }
-            }
-            if (!storeUrl) {
-                const genericStoreLink = document.querySelector('a[href*="/store/"]');
-                if (genericStoreLink) {
-                    storeUrl = genericStoreLink.href;
-                }
-            }
-            data.storeUrl = storeUrl;
-
-            const salesFactor = 10;
-            data.estimatedSales = data.ratingsCount ? data.ratingsCount * salesFactor : null;
-            data.estimatedProfit = (data.price && data.estimatedSales) ? data.price * data.estimatedSales : null;
-
-            return data;
-        });
-        return productData;
-    } catch (error) {
-        console.error("Erreur produit:", error.message);
-        throw new Error("Échec récupération produit.");
-    } finally {
-        if (browser) await browser.close();
-    }
-};
-
-/** pour scraper les magasins
- */
-const scrapeStoreData = async (url) => {
-    let browser;
-    try {
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-
-       
-        const storeData = await page.evaluate(() => {
-            const data = {};
-            const storeNameEl = document.querySelector('h1[class*="StorePageHeader-module__storeName--"]') || null;
-            data.storeName = storeNameEl ? storeNameEl.textContent.trim() : null;
-            const aboutEl = document.querySelector('p[class*="StorePageHeader-module__contentAbout--"]') || null;
-            data.about = aboutEl ? aboutEl.textContent.trim() : null;
-            const evaluationEl = document.querySelector('div[class*="RatingsLabel-module__ratingsLabelContainer--"] > div') || null;
-            data.averageRating = evaluationEl ? parseFloat(evaluationEl.textContent.trim()) : null;
-            
-            
-            const searchInput = document.getElementById('searchResources');
-            if (searchInput && searchInput.placeholder) {
-                const match = searchInput.placeholder.match(/(\d+)/);
-                data.totalProducts = match ? parseInt(match[1], 10) : 0;
-            } else {
-                data.totalProducts = 0;
-            }
-            return data;
-        });
-
-        await page.setViewport({ width: 1280, height: 800 });
-        let previousHeight;
-        while (true) {
-            previousHeight = await page.evaluate('document.body.scrollHeight');
-            await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            const newHeight = await page.evaluate('document.body.scrollHeight');
-            if (newHeight === previousHeight) {
-                break;
-            }
-        }
-
-        const allProducts = await page.evaluate(() => {
-            const products = [];
-            const productCards = document.querySelectorAll('[id^="product-row-"]');
-
-            productCards.forEach(card => {
-                const titleElement = card.querySelector('h2 a[href*="/Product/"]');
-                const title = titleElement ? titleElement.textContent.trim() : null;
-                const productUrl = titleElement ? titleElement.href : null;
-
-                const priceText = card.querySelector('[class*="ProductPrice-module__price--"]')?.textContent.trim() || null;
-                const price = priceText ? parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
-
-                const ratingCountText = card.querySelector('[class*="RatingsLabel-module__ratingsLabelContainer--"]')?.textContent.trim() || "0";
-                const ratingsCount = parseInt(ratingCountText.replace(/[^0-9]/g, ''), 10) || 0;
-                
-                const tagsElement = card.querySelector('[class*="MetadataFacetSection"] > div[class*="Text-module__detail"]');
-                const tags = tagsElement ? tagsElement.textContent.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : [];
-
-                const newBadge = card.querySelector('[class*="ProductRowLayoutCard-module__newBadge--"]');
-                const isNew = !!newBadge;
-
-                const estimatedSales = ratingsCount * 10;
-                const estimatedRevenue = price && estimatedSales ? price * estimatedSales : 0;
-
-                products.push({
-                    title,
-                    url: productUrl,
-                    price,
-                    ratingsCount,
-                    estimatedSales,
-                    estimatedRevenue,
-                    tags,
-                    isNew,
-                });
-            });
-            return products;
-        });
-
-        const totalProducts = storeData.totalProducts > 0 ? storeData.totalProducts : allProducts.length;
-
-       
-        const topProducts = [...allProducts].sort((a, b) => b.ratingsCount - a.ratingsCount).slice(0, 10);
-
-        
-        const newProducts = allProducts.filter(p => p.isNew).slice(0, 5);
-
-      
-        const keywordCounts = {};
-        allProducts.forEach(p => {
-            if (p.tags && p.tags.length > 0) {
-                p.tags.forEach(tag => {
-                    const cleanTag = tag.toLowerCase().replace(/[^a-z0-9\s]/gi, '');
-                    if (cleanTag.length > 2) {
-                        keywordCounts[cleanTag] = (keywordCounts[cleanTag] || 0) + 1;
-                    }
-                });
-            }
-        });
-        const topKeywords = Object.entries(keywordCounts)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([word, count]) => ({ word, count }));
-
-        const totalEstimatedSales = allProducts.reduce((sum, p) => sum + p.estimatedSales, 0);
-        const totalEstimatedRevenue = allProducts.reduce((sum, p) => sum + p.estimatedRevenue, 0);
-        const monthlyEstimatedRevenue = totalEstimatedRevenue / 12;
-
-        return {
-            storeName: storeData.storeName,
-            about: storeData.about,
-            averageRating: storeData.averageRating,
-            totalProducts,
-            products: allProducts,
-            totalEstimatedSales,
-            monthlyEstimatedRevenue,
-            topProducts,
-            topKeywords,
-            newProducts,
-        };
-
-    } catch (error) {
-        console.error("Erreur magasin:", error.message);
-        throw new Error("Échec récupération magasin.");
-    } finally {
-        if (browser) await browser.close();
-    }
-};
-
-/**
- * Nouvelle fonction pour scraper les données de mots-clés.
- */
-/**
- * Fonction mise à jour pour scraper les données de mots-clés avec TOP 10 PRODUITS
- */
+// Pour scraper les données de mots-clés
 const scrapeKeywordData = async (keyword) => {
     let browser;
     try {
@@ -1473,7 +1057,7 @@ const scrapeKeywordData = async (keyword) => {
             competitionLevel,
             competitionScore,
             relatedKeywords: data.relatedKeywords,
-            topProducts: data.topProducts // ⭐ NOUVELLE DONNÉE
+            topProducts: data.topProducts
         };
 
     } catch (error) {
@@ -1484,24 +1068,140 @@ const scrapeKeywordData = async (keyword) => {
     }
 };
 
-// pour les mots cle
+// Pour scraper les magasins
+const scrapeStoreData = async (url) => {
+    let browser;
+    try {
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+        const storeData = await page.evaluate(() => {
+            const data = {};
+            const storeNameEl = document.querySelector('h1[class*="StorePageHeader-module__storeName--"]') || null;
+            data.storeName = storeNameEl ? storeNameEl.textContent.trim() : null;
+            const aboutEl = document.querySelector('p[class*="StorePageHeader-module__contentAbout--"]') || null;
+            data.about = aboutEl ? aboutEl.textContent.trim() : null;
+            const evaluationEl = document.querySelector('div[class*="RatingsLabel-module__ratingsLabelContainer--"] > div') || null;
+            data.averageRating = evaluationEl ? parseFloat(evaluationEl.textContent.trim()) : null;
+            
+            const searchInput = document.getElementById('searchResources');
+            if (searchInput && searchInput.placeholder) {
+                const match = searchInput.placeholder.match(/(\d+)/);
+                data.totalProducts = match ? parseInt(match[1], 10) : 0;
+            } else {
+                data.totalProducts = 0;
+            }
+            return data;
+        });
+
+        await page.setViewport({ width: 1280, height: 800 });
+        let previousHeight;
+        while (true) {
+            previousHeight = await page.evaluate('document.body.scrollHeight');
+            await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const newHeight = await page.evaluate('document.body.scrollHeight');
+            if (newHeight === previousHeight) {
+                break;
+            }
+        }
+
+        const allProducts = await page.evaluate(() => {
+            const products = [];
+            const productCards = document.querySelectorAll('[id^="product-row-"]');
+
+            productCards.forEach(card => {
+                const titleElement = card.querySelector('h2 a[href*="/Product/"]');
+                const title = titleElement ? titleElement.textContent.trim() : null;
+                const productUrl = titleElement ? titleElement.href : null;
+
+                const priceText = card.querySelector('[class*="ProductPrice-module__price--"]')?.textContent.trim() || null;
+                const price = priceText ? parseFloat(priceText.replace(/[^0-9.,]/g, '').replace(',', '.')) : 0;
+
+                const ratingCountText = card.querySelector('[class*="RatingsLabel-module__ratingsLabelContainer--"]')?.textContent.trim() || "0";
+                const ratingsCount = parseInt(ratingCountText.replace(/[^0-9]/g, ''), 10) || 0;
+                
+                const tagsElement = card.querySelector('[class*="MetadataFacetSection"] > div[class*="Text-module__detail"]');
+                const tags = tagsElement ? tagsElement.textContent.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : [];
+
+                const newBadge = card.querySelector('[class*="ProductRowLayoutCard-module__newBadge--"]');
+                const isNew = !!newBadge;
+
+                const estimatedSales = ratingsCount * 10;
+                const estimatedRevenue = price && estimatedSales ? price * estimatedSales : 0;
+
+                products.push({
+                    title,
+                    url: productUrl,
+                    price,
+                    ratingsCount,
+                    estimatedSales,
+                    estimatedRevenue,
+                    tags,
+                    isNew,
+                });
+            });
+            return products;
+        });
+
+        const totalProducts = storeData.totalProducts > 0 ? storeData.totalProducts : allProducts.length;
+        const topProducts = [...allProducts].sort((a, b) => b.ratingsCount - a.ratingsCount).slice(0, 10);
+        const newProducts = allProducts.filter(p => p.isNew).slice(0, 5);
+
+        const keywordCounts = {};
+        allProducts.forEach(p => {
+            if (p.tags && p.tags.length > 0) {
+                p.tags.forEach(tag => {
+                    const cleanTag = tag.toLowerCase().replace(/[^a-z0-9\s]/gi, '');
+                    if (cleanTag.length > 2) {
+                        keywordCounts[cleanTag] = (keywordCounts[cleanTag] || 0) + 1;
+                    }
+                });
+            }
+        });
+        const topKeywords = Object.entries(keywordCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([word, count]) => ({ word, count }));
+
+        const totalEstimatedSales = allProducts.reduce((sum, p) => sum + p.estimatedSales, 0);
+        const totalEstimatedRevenue = allProducts.reduce((sum, p) => sum + p.estimatedRevenue, 0);
+        const monthlyEstimatedRevenue = totalEstimatedRevenue / 12;
+
+        return {
+            storeName: storeData.storeName,
+            about: storeData.about,
+            averageRating: storeData.averageRating,
+            totalProducts,
+            products: allProducts,
+            totalEstimatedSales,
+            monthlyEstimatedRevenue,
+            topProducts,
+            topKeywords,
+            newProducts,
+        };
+
+    } catch (error) {
+        console.error("Erreur magasin:", error.message);
+        throw new Error("Échec récupération magasin.");
+    } finally {
+        if (browser) await browser.close();
+    }
+};
+
+// ============================================
+// ENDPOINTS POUR MOTS-CLÉS ET MAGASINS
+// ============================================
+
 app.post('/api/analyze-keyword', async (req, res) => {
     const { keyword } = req.body;
     if (!keyword) return res.status(400).json({ message: 'Mot-clé requis.' });
     try {
         const data = await scrapeKeywordData(keyword);
-        res.status(200).json(data);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-// ---------------------------------------------
-
-app.post('/api/analyze-product', async (req, res) => {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ message: 'URL produit requise.' });
-    try {
-        const data = await scrapeProductData(url);
         res.status(200).json(data);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -1519,13 +1219,145 @@ app.post('/api/analyze-store', async (req, res) => {
     }
 });
 
+// ============================================
+// DASHBOARD ENDPOINTS (VOTRE CODE EXISTANT)
+// ============================================
+
+// Simuler une base de données en mémoire pour la démo
+let keywordOpportunities = [
+    {
+        id: 1,
+        keyword: 'phonics worksheets',
+        total_products: 8500,
+        average_price: 4.50,
+        average_rating: 4.2,
+        competition_level: 'Faible',
+        competition_score: 25,
+        opportunity_score: 85,
+        updated_at: new Date().toISOString()
+    },
+    {
+        id: 2,
+        keyword: 'sight words activities',
+        total_products: 6200,
+        average_price: 2.90,
+        average_rating: 4.3,
+        competition_level: 'Faible',
+        competition_score: 18,
+        opportunity_score: 78,
+        updated_at: new Date().toISOString()
+    },
+    {
+        id: 3,
+        keyword: 'math centers kindergarten',
+        total_products: 12000,
+        average_price: 5.20,
+        average_rating: 4.4,
+        competition_level: 'Moyen',
+        competition_score: 45,
+        opportunity_score: 72,
+        updated_at: new Date().toISOString()
+    }
+];
+
+let trendingProducts = [
+    {
+        id: 1,
+        product_url: 'https://www.teacherspayteachers.com/Product/Math-Game-123',
+        title: 'Interactive Math Centers for Kindergarten',
+        price: 5.99,
+        store_name: 'MathMagicStore',
+        ratings_count: 145,
+        average_rating: 4.8,
+        growth_rate: 85.5,
+        tags: ['math', 'kindergarten', 'centers'],
+        updated_at: new Date().toISOString()
+    },
+    {
+        id: 2,
+        product_url: 'https://www.teacherspayteachers.com/Product/Reading-Bundle-456',
+        title: 'Phonics Reading Bundle - Complete Set',
+        price: 8.50,
+        store_name: 'ReadingCornerShop',
+        ratings_count: 89,
+        average_rating: 4.6,
+        growth_rate: 72.3,
+        tags: ['phonics', 'reading', 'bundle'],
+        updated_at: new Date().toISOString()
+    }
+];
+
+let userAlertsStore = new Map();
+
+// Endpoints dashboard
+app.get('/api/dashboard/opportunities', async (req, res) => {
+    try {
+        const { userId } = req.query;
+        const opportunities = keywordOpportunities
+            .filter(opp => opp.opportunity_score > 60)
+            .sort((a, b) => b.opportunity_score - a.opportunity_score);
+        
+        res.json({
+            success: true,
+            opportunities: opportunities.slice(0, 6),
+            total: opportunities.length
+        });
+        
+    } catch (error) {
+        console.error('Erreur récupération opportunités:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erreur lors de la récupération des opportunités' 
+        });
+    }
+});
+
+app.get('/api/dashboard/trending', async (req, res) => {
+    try {
+        const { limit = 5 } = req.query;
+        
+        const trending = trendingProducts
+            .filter(product => product.growth_rate > 30)
+            .sort((a, b) => b.growth_rate - a.growth_rate)
+            .slice(0, parseInt(limit));
+        
+        res.json({
+            success: true,
+            trending,
+            total: trending.length
+        });
+        
+    } catch (error) {
+        console.error('Erreur récupération tendances:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erreur lors de la récupération des tendances' 
+        });
+    }
+});
+
+// ============================================
+// ENDPOINT PRINCIPAL ET DÉMARRAGE DU SERVEUR
+// ============================================
+
 app.get('/', (req, res) => {
-    res.send('Serveur scraping TPT en ligne.');
+    res.json({
+        status: 'TPT Niche Navigator API - En ligne',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            health: '/api/scraper/health',
+            testProduct: '/api/test-product',
+            analyzeProduct: '/api/analyze-product',
+            analyzeKeyword: '/api/analyze-keyword',
+            analyzeStore: '/api/analyze-store'
+        }
+    });
 });
 
 app.listen(PORT, () => {
-    console.log(`Serveur en écoute sur port ${PORT}`);
-});
-
-
-
+    console.log(`🚀 Serveur TPT Niche Navigator démarré sur le port ${PORT}`);
+    console.log(`📍 URL: http://localhost:${PORT}`);
+    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔧 Puppeteer disponible: ${!!puppeteer}`);
+}); 

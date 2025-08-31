@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { analyzeTPTProduct } from '@/api/tptScraper.ts';
+import { analyzeTPTProduct } from '@/api/tptScraper';
 import { 
   Search, 
   Star, 
@@ -16,76 +16,158 @@ import {
   Calendar,
   ExternalLink,
   Bookmark,
-  Store
+  Store,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface ProductData {
-  title: string;
-  description: string;
-  price: number | null; // Peut être null
-  ratingsCount: number | null; // Peut être null
-  averageRating: number | null; // Peut être null
-  storeName: string;
-  storeUrl: string;
-  pageCount?: number | null; // Peut être null
-  dateAdded?: string | null; // Peut être null
-  estimatedSales: number | null; // Peut être null
-  estimatedProfit: number | null; // Peut être null
-  url: string; 
+  title?: string;
+  description?: string;
+  price?: number | null;
+  ratingsCount?: number | null;
+  averageRating?: number | null;
+  storeName?: string;
+  storeUrl?: string;
+  pageDetails?: number | null;
+  dateAdded?: string | null;
+  estimatedSales?: number | null;
+  estimatedProfit?: number | null;
+  tags?: string[];
+  url: string;
 }
 
 export const ProductAnalyzer: React.FC = () => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [productData, setProductData] = useState<ProductData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
- const analyzeProduct = async () => {
-  if (!url.includes('teacherspayteachers.com/Product/')) {
-    toast({
-      title: "URL invalide",
-      description: "Veuillez entrer une URL de produit TPT valide.",
-      variant: "destructive",
-    });
-    return;
-  }
+  const validateUrl = (url: string): boolean => {
+    const validPatterns = [
+      'teacherspayteachers.com/Product/',
+      'tpt.com/Product/'
+    ];
+    return validPatterns.some(pattern => url.includes(pattern));
+  };
 
-  setLoading(true);
-
-  try {
-    const data = await analyzeTPTProduct(url);
-
-    if (!data) {
-      throw new Error("Aucune donnée reçue du serveur");
+  const analyzeProduct = async () => {
+    if (!url.trim()) {
+      toast({
+        title: "URL manquante",
+        description: "Veuillez entrer une URL de produit TPT.",
+        variant: "destructive",
+      });
+      return;
     }
 
-    setProductData({ ...data, url });
+    if (!validateUrl(url)) {
+      toast({
+        title: "URL invalide",
+        description: "Veuillez entrer une URL de produit TPT valide (doit contenir '/Product/').",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    toast({
-      title: "Analyse terminée",
-      description: "Les données du produit ont été analysées avec succès",
-    });
+    setLoading(true);
+    setError(null);
+    setProductData(null);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error("Erreur d'analyse du produit:", error);
-    toast({
-      title: "Erreur",
-      description: error.message,
-      variant: "destructive",
-    });
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      console.log('Début analyse pour URL:', url);
+      
+      const data = await analyzeTPTProduct(url);
+      console.log('Données reçues:', data);
 
+      if (!data) {
+        throw new Error("Aucune donnée reçue du serveur");
+      }
 
+      // Construire l'objet productData avec des valeurs par défaut
+      const processedData: ProductData = {
+        title: data.title || 'Titre non disponible',
+        description: data.description || 'Description non disponible',
+        price: typeof data.price === 'number' ? data.price : null,
+        ratingsCount: typeof data.ratingsCount === 'number' ? data.ratingsCount : null,
+        averageRating: typeof data.averageRating === 'number' ? data.averageRating : null,
+        storeName: data.storeName || 'Magasin non identifié',
+        storeUrl: data.storeUrl || '',
+        pageDetails: typeof data.pageDetails === 'number' ? data.pageDetails : null,
+        dateAdded: data.dateAdded || null,
+        estimatedSales: typeof data.estimatedSales === 'number' ? data.estimatedSales : null,
+        estimatedProfit: typeof data.estimatedProfit === 'number' ? data.estimatedProfit : null,
+        tags: Array.isArray(data.tags) ? data.tags : [],
+        url: url
+      };
+
+      setProductData(processedData);
+
+      toast({
+        title: "Analyse terminée",
+        description: "Les données du produit ont été analysées avec succès",
+      });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      console.error("Erreur d'analyse du produit:", error);
+      
+      let errorMessage = "Une erreur inconnue s'est produite";
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      setError(errorMessage);
+      
+      toast({
+        title: "Erreur d'analyse",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const saveProduct = () => {
-    toast({
-      title: "Produit sauvegardé",
-      description: "Ce produit a été ajouté à vos recherches sauvegardées",
-    });
+    if (productData) {
+      // Sauvegarder dans localStorage ou envoyer vers votre API
+      const savedProducts = JSON.parse(localStorage.getItem('savedProducts') || '[]');
+      savedProducts.unshift({
+        ...productData,
+        savedAt: new Date().toISOString()
+      });
+      localStorage.setItem('savedProducts', JSON.stringify(savedProducts.slice(0, 50))); // Garder max 50
+      
+      toast({
+        title: "Produit sauvegardé",
+        description: "Ce produit a été ajouté à vos recherches sauvegardées",
+      });
+    }
+  };
+
+  const formatNumber = (num: number | null | undefined): string => {
+    if (typeof num !== 'number' || isNaN(num)) return 'N/A';
+    return num.toLocaleString('fr-FR');
+  };
+
+  const formatCurrency = (num: number | null | undefined): string => {
+    if (typeof num !== 'number' || isNaN(num)) return 'N/A';
+    return `$${num.toFixed(2)}`;
+  };
+
+  const formatDate = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'N/A';
+    try {
+      return new Date(dateString).toLocaleDateString('fr-FR');
+    } catch {
+      return 'N/A';
+    }
   };
 
   return (
@@ -118,16 +200,17 @@ export const ProductAnalyzer: React.FC = () => {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               className="transition-smooth focus:shadow-soft"
+              disabled={loading}
             />
           </div>
           <Button 
             onClick={analyzeProduct} 
-            disabled={!url || loading}
+            disabled={!url.trim() || loading}
             className="w-full bg-gradient-primary hover:opacity-90 transition-smooth"
           >
             {loading ? (
               <>
-                <Search className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Analyse en cours...
               </>
             ) : (
@@ -139,6 +222,15 @@ export const ProductAnalyzer: React.FC = () => {
           </Button>
         </CardContent>
       </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Erreur:</strong> {error}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {productData && (
         <div className="space-y-6">
@@ -170,7 +262,7 @@ export const ProductAnalyzer: React.FC = () => {
                     Prix
                   </div>
                   <div className="text-2xl font-bold text-secondary">
-                    {productData.price ? `$${productData.price.toLocaleString('en-US')}` : 'N/A'}
+                    {formatCurrency(productData.price)}
                   </div>
                 </div>
                 
@@ -180,10 +272,14 @@ export const ProductAnalyzer: React.FC = () => {
                     Évaluations
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl font-bold">{productData.ratingsCount ? productData.ratingsCount : 'N/A'}</span>
-                    <Badge variant="secondary">
-                      {productData.averageRating ? `${productData.averageRating}/5` : 'N/A'}
-                    </Badge>
+                    <span className="text-2xl font-bold">
+                      {formatNumber(productData.ratingsCount)}
+                    </span>
+                    {productData.averageRating && (
+                      <Badge variant="secondary">
+                        {productData.averageRating.toFixed(1)}/5
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 
@@ -193,7 +289,7 @@ export const ProductAnalyzer: React.FC = () => {
                     Ventes estimées
                   </div>
                   <div className="text-2xl font-bold text-primary">
-                    {productData.estimatedSales ? productData.estimatedSales.toLocaleString('en-US') : 'N/A'}
+                    {formatNumber(productData.estimatedSales)}
                   </div>
                 </div>
                 
@@ -203,7 +299,7 @@ export const ProductAnalyzer: React.FC = () => {
                     Profit estimé
                   </div>
                   <div className="text-2xl font-bold text-secondary">
-                    {productData.estimatedProfit ? `$${productData.estimatedProfit.toLocaleString('en-US')}` : 'N/A'}
+                    {formatCurrency(productData.estimatedProfit)}
                   </div>
                 </div>
               </div>
@@ -217,15 +313,17 @@ export const ProductAnalyzer: React.FC = () => {
                     Détails du produit
                   </h3>
                   <div className="space-y-3">
-                    {/* FIX: Vérifie si le nombre de pages existe avant de l'afficher */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Nombre de pages:</span>
-                      <span className="font-medium">{productData.pageCount ? productData.pageCount : 'N/A'}</span>
+                      <span className="font-medium">
+                        {productData.pageDetails ? productData.pageDetails : 'N/A'}
+                      </span>
                     </div>
-                    {/* FIX: Vérifie si la date existe avant de l'afficher */}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Date d'ajout:</span>
-                      <span className="font-medium">{productData.dateAdded ? new Date(productData.dateAdded).toLocaleDateString('fr-FR') : 'N/A'}</span>
+                      <span className="font-medium">
+                        {formatDate(productData.dateAdded)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">URL:</span>
@@ -233,10 +331,10 @@ export const ProductAnalyzer: React.FC = () => {
                         href={productData.url} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="text-primary hover:underline flex items-center gap-1"
+                        className="text-primary hover:underline flex items-center gap-1 max-w-[200px] truncate"
                       >
                         Voir sur TPT
-                        <ExternalLink className="h-3 w-3" />
+                        <ExternalLink className="h-3 w-3 flex-shrink-0" />
                       </a>
                     </div>
                   </div>
@@ -252,25 +350,43 @@ export const ProductAnalyzer: React.FC = () => {
                       <span className="text-muted-foreground">Nom du magasin:</span>
                       <span className="font-medium">{productData.storeName}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Magasin:</span>
-                      <a 
-                        href={productData.storeUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline flex items-center gap-1"
-                      >
-                        Visiter le magasin
-                        <ExternalLink className="h-3 w-3" />
-                      </a>
-                    </div>
+                    {productData.storeUrl && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Magasin:</span>
+                        <a 
+                          href={productData.storeUrl} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline flex items-center gap-1"
+                        >
+                          Visiter le magasin
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
+
+              {productData.tags && productData.tags.length > 0 && (
+                <>
+                  <Separator className="my-6" />
+                  <div className="space-y-4">
+                    <h3 className="font-semibold">Tags/Mots-clés</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {productData.tags.map((tag, index) => (
+                        <Badge key={index} variant="outline">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
       )}
     </div>
   );
-};
+}; 
