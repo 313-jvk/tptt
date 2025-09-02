@@ -5,7 +5,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import * as dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config(); 
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,7 +28,191 @@ const userSubscriptions = new Map(); // userId -> subscription data
 // FONCTION SCRAPING PRODUITS CORRIGÉE
 // ============================================
 
-// Fonction de scraping simplifiée et plus robuste
+// Fonction de scraping simplifiée et plus robuste 
+
+
+
+const scrapeProductData = async (url) => {
+    let browser;
+    try {
+        console.log(`[${new Date().toISOString()}] Puppeteer: Lancement pour ${url}`);
+        
+        const config = getPuppeteerConfig();
+        console.log('Configuration Puppeteer:', JSON.stringify(config, null, 2));
+        
+        browser = await puppeteer.launch(config);
+        const page = await browser.newPage();
+        
+        // Configuration de la page
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        
+        // Aller à la page avec timeout étendu
+        console.log('Navigation vers la page...');
+        await page.goto(url, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 30000 
+        });
+        
+        // Attendre un peu pour que le JavaScript se charge
+        await page.waitForTimeout(3000);
+        
+        console.log('Extraction des données...');
+        
+        const data = await page.evaluate(() => {
+            const result = {};
+
+            // 1. TITRE
+            result.title = document.title || 
+                          document.querySelector('h1')?.textContent?.trim() || 
+                          'Titre non trouvé';
+
+            // 2. PRIX
+            let price = null;
+            const priceSelectors = [
+                '[data-price]',
+                '.price',
+                '[class*="price"]',
+                '[class*="Price"]'
+            ];
+            
+            for (const selector of priceSelectors) {
+                const priceEl = document.querySelector(selector);
+                if (priceEl) {
+                    const priceText = priceEl.textContent || priceEl.getAttribute('data-price') || '';
+                    const priceMatch = priceText.match(/\$?\s*(\d+(?:\.\d{2})?)/);
+                    if (priceMatch) {
+                        price = parseFloat(priceMatch[1]);
+                        break;
+                    }
+                }
+            }
+            
+            // Fallback: chercher dans tout le texte
+            if (!price) {
+                const bodyText = document.body.textContent || '';
+                const priceMatches = bodyText.match(/\$\s*(\d+(?:\.\d{2})?)/g);
+                if (priceMatches && priceMatches.length > 0) {
+                    // Prendre le premier prix trouvé qui semble raisonnable
+                    for (const match of priceMatches) {
+                        const value = parseFloat(match.replace('$', '').trim());
+                        if (value > 0 && value < 1000) {
+                            price = value;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            result.price = price;
+
+            // 3. EVALUATIONS
+            let ratingsCount = null;
+            const textContent = document.body.textContent || '';
+            
+            // Patterns pour trouver le nombre d'évaluations
+            const ratingPatterns = [
+                /(\d+)\s*ratings?/i,
+                /(\d+)\s*reviews?/i,
+                /(\d+)\s*évaluations?/i
+            ];
+            
+            for (const pattern of ratingPatterns) {
+                const match = textContent.match(pattern);
+                if (match && match[1]) {
+                    const count = parseInt(match[1], 10);
+                    if (count > 0 && count < 100000) {
+                        ratingsCount = count;
+                        break;
+                    }
+                }
+            }
+            
+            result.ratingsCount = ratingsCount;
+
+            // 4. NOTE MOYENNE
+            let averageRating = null;
+            const avgPatterns = [
+                /(\d\.?\d?)\s*out\s*of\s*5/i,
+                /(\d\.?\d?)\s*\/\s*5/i,
+                /(\d\.?\d?)\s*stars?/i
+            ];
+            
+            for (const pattern of avgPatterns) {
+                const match = textContent.match(pattern);
+                if (match && match[1]) {
+                    const rating = parseFloat(match[1]);
+                    if (rating > 0 && rating <= 5) {
+                        averageRating = rating;
+                        break;
+                    }
+                }
+            }
+            
+            result.averageRating = averageRating;
+
+            // 5. NOM DU MAGASIN
+            let storeName = null;
+            let storeUrl = null;
+            
+            // Chercher les liens vers /store/
+            const storeLinks = document.querySelectorAll('a[href*="/store/"], a[href*="/Store/"]');
+            if (storeLinks.length > 0) {
+                const storeLink = storeLinks[0];
+                storeName = storeLink.textContent?.trim() || 'Magasin trouvé';
+                storeUrl = storeLink.href;
+            }
+            
+            result.storeName = storeName || 'Magasin non identifié';
+            result.storeUrl = storeUrl;
+
+            // 6. DESCRIPTION
+            result.description = document.querySelector('meta[name="description"]')?.getAttribute('content') ||
+                               document.querySelector('meta[property="og:description"]')?.getAttribute('content') ||
+                               'Description non disponible';
+
+            // 7. TAGS (basiques)
+            const tags = [];
+            const metaKeywords = document.querySelector('meta[name="keywords"]')?.getAttribute('content');
+            if (metaKeywords) {
+                tags.push(...metaKeywords.split(',').map(k => k.trim()).slice(0, 10));
+            }
+            
+            result.tags = tags;
+
+            return result;
+        });
+
+        // 8. CALCULS ESTIMÉS
+        if (data.ratingsCount && data.ratingsCount > 0) {
+            data.estimatedSales = data.ratingsCount * 10; // Facteur multiplicateur
+            if (data.price && data.price > 0) {
+                data.estimatedProfit = Math.round(data.price * data.estimatedSales * 100) / 100;
+            }
+        }
+
+        console.log(`[${new Date().toISOString()}] Puppeteer réussi:`, {
+            titre: !!data.title,
+            prix: !!data.price,
+            evaluations: !!data.ratingsCount
+        });
+
+        return data;
+
+    } catch (error) {
+        console.error(`[${new Date().toISOString()}] Erreur Puppeteer:`, error.message);
+        throw error;
+    } finally {
+        if (browser) {
+            try {
+                await browser.close();
+            } catch (closeError) {
+                console.error('Erreur fermeture browser:', closeError.message);
+            }
+        }
+    }
+}; 
+
 const scrapeProductDataFallback = async (url) => {
     try {
         console.log(`[${new Date().toISOString()}] Fallback: Récupération HTTP de ${url}`);
